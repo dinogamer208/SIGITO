@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.venv/
+
+# Configuración local con credenciales reales
+config_local.py
+
+# Base de datos local (modo offline)
+*.db
+sigito_local.db
+
+# Archivos generados (no deben ir al repo, cada quien los genera localmente)
+assets/etiquetas/*.png
+assets/fotos_articulos/*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Scripts de prueba personales (opcional, si no quieres que se suban)
+probar_*.py
