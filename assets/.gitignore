@@ -26,4 +26,4 @@ Thumbs.db
 .idea/
 
 # Scripts de prueba personales (opcional, si no quieres que se suban)
-probar_*.py
+probar_inventario*.py

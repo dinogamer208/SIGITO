@@ -211,3 +211,78 @@ def generar_etiqueta(codigo_inventario, nombre_articulo, carpeta_salida="assets/
     os.remove(f"{ruta_barras_temp}.png")
 
     return ruta_final
+
+# ---------------------------------------------------------
+# CRUD de Categorías
+# ---------------------------------------------------------
+
+def agregar_categoria(nombre, descripcion=None):
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "INSERT INTO categorias (nombre, descripcion) VALUES (%s, %s)",
+        (nombre, descripcion)
+    )
+    conexion.commit()
+    nuevo_id = cursor.lastrowid
+    cursor.close()
+    conexion.close()
+    return nuevo_id
+
+def editar_categoria(id_categoria, nombre, descripcion=None):
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "UPDATE categorias SET nombre = %s, descripcion = %s WHERE id = %s",
+        (nombre, descripcion, id_categoria)
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+
+def editar_categoria(id_categoria, nombre, descripcion=None):
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "UPDATE categorias SET nombre = %s, descripcion = %s WHERE id = %s",
+        (nombre, descripcion, id_categoria)
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+
+def eliminar_categoria(id_categoria):
+    """
+    Antes de eliminar, verificar que no haya articulos usando esta
+    categoria, para no dejar articulos huérfanos o romper la
+    llave foránea.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM articulos WHERE categoria_id = %s",
+        (id_categoria,)
+    )
+    cantidad = cursor.fetchone()[0]
+
+    if cantidad > 0:
+        cursor.close()
+        conexion.close()
+        raise ValueError(
+            f"No se puede eliminar: hay {cantidad} artículo(s) usando esta categoría."
+        )
+    
+    cursor.execute("DELETE FROM categorias WHERE id = %s", (id_categoria,))
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+
+def listar_categorias():
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM categorias ORDER BY nombre")
+    filas = cursor.fetchall()
+    cursor.close()
+    conexion.close()
+    return filas

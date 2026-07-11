@@ -1,6 +1,6 @@
 -- =========================================================
 -- db/schema.sql
--- Base de datos del sistema SIGITO
+-- Base de datos del sistema SIGITO (versión LOCAL, sin servidor remoto)
 -- =========================================================
 
 CREATE DATABASE IF NOT EXISTS sigito_db;
@@ -31,7 +31,6 @@ CREATE TABLE articulos (
     estado_disponibilidad ENUM('disponible', 'prestado', 'de_baja') DEFAULT 'disponible',
     fecha_adquisicion DATE,
     ubicacion_actual VARCHAR(150),
-    uuid_local VARCHAR(36) UNIQUE,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (categoria_id) REFERENCES categorias(id)
 );
@@ -79,7 +78,6 @@ CREATE TABLE asignaciones (
     correo_aviso_enviado BOOLEAN DEFAULT FALSE,
     usuario_registro_id INT NOT NULL,
     usuario_devolucion_id INT NULL,
-    uuid_local VARCHAR(36) UNIQUE,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (articulo_id) REFERENCES articulos(id),
     FOREIGN KEY (profesor_autoriza_id) REFERENCES profesores_autorizados(id),
@@ -116,9 +114,15 @@ CREATE TABLE mantenimientos (
     FOREIGN KEY (articulo_id) REFERENCES articulos(id)
 );
 
--- ---------------------------------------------------------
--- Usuario de aplicación (permisos limitados, no usar root)
--- ---------------------------------------------------------
-CREATE USER 'sigito_app'@'192.168.10.%' IDENTIFIED BY 'sigito2026';
-GRANT SELECT, INSERT, UPDATE ON sigito_db.* TO 'sigito_app'@'192.168.10.%';
-FLUSH PRIVILEGES;
+-- =========================================================
+-- NOTA: Ya no se crea un usuario de MySQL separado (sigito_app)
+-- porque por ahora el sistema es 100% local, cada quien usa su
+-- propio 'root' de MySQL en su computadora.
+--
+-- Si en el futuro se conecta a un servidor real en red, aquí se
+-- agregaría de nuevo algo como:
+--
+-- CREATE USER 'sigito_app'@'%' IDENTIFIED BY 'CAMBIAR_ESTO';
+-- GRANT SELECT, INSERT, UPDATE ON sigito_db.* TO 'sigito_app'@'%';
+-- FLUSH PRIVILEGES;
+-- =========================================================
