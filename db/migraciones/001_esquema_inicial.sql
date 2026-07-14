@@ -1,0 +1,32 @@
+-- =========================================================
+-- db/migraciones/001_esquema_inicial.sql
+-- Migración inicial: representa el estado de la base de datos
+-- tal como quedó definida en db/schema.sql.
+-- Autor: Persona 1
+--
+-- INSTRUCCIONES para el equipo:
+-- Cada vez que alguien necesite CAMBIAR la estructura de la base de
+-- datos (agregar una columna, crear una tabla nueva, cambiar un ENUM,
+-- etc.), NO debe editar directamente db/schema.sql sin dejar rastro.
+--
+-- En vez de eso:
+-- 1. Crear un archivo nuevo aquí en db/migraciones/ con el siguiente
+--    número consecutivo, ej: 002_agrega_columna_x.sql
+-- 2. Escribir SOLO el cambio específico (ALTER TABLE, CREATE TABLE
+--    nueva, etc.), no todo el esquema de nuevo.
+-- 3. Actualizar también db/schema.sql para que refleje el estado
+--    final (así alguien que clona el proyecto de cero solo corre
+--    schema.sql y ya tiene todo, sin aplicar migraciones una por una).
+-- 4. Avisar al equipo qué cambió y por qué.
+-- 5. Registrar la migración en control_versiones:
+--       INSERT INTO control_versiones (nombre_migracion)
+--       VALUES ('002_agrega_columna_x.sql');
+--
+-- Esto evita que alguien "rompa" la base de datos de los demás sin
+-- que se sepa qué cambió, y sirve como historial real del proyecto.
+-- =========================================================
+
+-- Esta migración representa el punto de partida (ya aplicado).
+-- Ver db/schema.sql para el contenido completo de esta versión.
+-- No es necesario ejecutar este archivo si ya corriste schema.sql
+-- directamente; se deja aquí solo como referencia histórica.
