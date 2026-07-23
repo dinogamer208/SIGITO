@@ -3,13 +3,8 @@ models/mantenimiento.py — Modelo de datos Mantenimiento.
 
 Responsable: Persona 5.
 
-Qué debe hacer este archivo:
-1. Definir una clase Mantenimiento asociada a un artículo, con fecha
-   de inicio/fin y descripción del trabajo realizado.
-2. Puede incluir esta_activo() para saber si el artículo sigue en
-   mantenimiento (fecha_fin es None).
-
-Esqueleto:
+Representa una fila de `mantenimientos`: un evento puntual de servicio
+sobre un artículo (no un rango con fecha de inicio/fin).
 """
 
 from dataclasses import dataclass
@@ -21,14 +16,18 @@ from typing import Optional
 class Mantenimiento:
     id: int
     articulo_id: int
-    descripcion: str
-    fecha_inicio: date
-    fecha_fin: Optional[date]
+    fecha: date
+    descripcion: Optional[str]
+    costo: Optional[float]
+    tecnico: Optional[str]
 
     @staticmethod
     def desde_fila(fila: dict) -> "Mantenimiento":
-        # TODO: mapear fila["campo"] -> Mantenimiento(...)
-        raise NotImplementedError
-
-    def esta_activo(self) -> bool:
-        return self.fecha_fin is None
+        return Mantenimiento(
+            id=fila["id"],
+            articulo_id=fila["articulo_id"],
+            fecha=fila["fecha"],
+            descripcion=fila.get("descripcion"),
+            costo=float(fila["costo"]) if fila.get("costo") is not None else None,
+            tecnico=fila.get("tecnico"),
+        )

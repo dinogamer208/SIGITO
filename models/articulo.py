@@ -34,7 +34,7 @@ class Articulo:
         self.fecha_adquisicion = fecha_adquisicion
         self.ubicacion_actual = ubicacion_actual
         self.uuid_local = uuid_local
-        self.fecha_adquisicion = fecha_creacion
+        self.fecha_creacion = fecha_creacion
 
     def esta_disponible(self):
         return self.estado_disponibilidad == "disponible"

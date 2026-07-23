@@ -47,3 +47,26 @@ def listar_historial_por_articulo(articulo_id):
     cursor.close()
     conexion.close()
     return filas
+
+
+def listar_historial_reciente(limite=10):
+    """
+    Últimos movimientos de todo el sistema (para el panel del dashboard),
+    con el nombre de usuario resuelto vía JOIN cuando existe.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT h.id, h.tipo_movimiento, h.fecha, h.detalle,
+               u.nombre AS usuario_nombre
+        FROM historial_movimientos h
+        LEFT JOIN usuarios u ON u.id = h.usuario_id
+        ORDER BY h.fecha DESC
+        LIMIT %s
+    """, (limite,))
+
+    filas = cursor.fetchall()
+    cursor.close()
+    conexion.close()
+    return filas

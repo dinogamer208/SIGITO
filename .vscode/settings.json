@@ -1,14 +1,25 @@
 {
     "cSpell.words": [
+        "adquisicion",
         "articulos",
+        "asignacion",
         "categoria",
         "categorias",
         "codigo",
+        "conexion",
         "descripcion",
         "devolucion",
         "dotenv",
+        "fisico",
         "mysql",
         "prestamo",
-        "sigito"
+        "pycache",
+        "sigito",
+        "textbbox",
+        "ubicacion",
+        "venv"
+    ],
+    "cSpell.ignoreWords": [
+        "customtkinter"
     ]
 }

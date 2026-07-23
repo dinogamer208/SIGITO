@@ -1,18 +1,8 @@
 """
-controllers/auth_controller.py — Login, roles y sesión activa.
+controllers/auth_controller.py — Login, roles, sesión activa y
+catálogo de profesores autorizados.
 
 Responsable: Persona 2.
-
-Qué debe hacer este archivo:
-1. iniciar_sesion(correo, password) -> valida contra la tabla usuarios
-   usando bcrypt (ver utils/seguridad.py) y devuelve un objeto Usuario
-   si las credenciales son correctas, o None/excepción si no.
-2. Mantener quién es el usuario activo durante la sesión (variable de
-   módulo o clase Sesion simple) para que otras vistas sepan el rol
-   actual (ej. ocultar botones de admin a un profesor).
-3. cerrar_sesion() -> limpia el estado de sesión activa.
-
-Esqueleto:
 """
 
 from db.conexion import obtener_conexion
@@ -22,17 +12,25 @@ from utils.seguridad import verificar_password
 _usuario_actual: Usuario | None = None
 
 
-def iniciar_sesion(correo: str, password: str) -> Usuario | None:
+def iniciar_sesion(usuario: str, password: str) -> Usuario | None:
     conexion = obtener_conexion()
     try:
         cursor = conexion.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM usuarios WHERE correo = %s AND activo = TRUE", (correo,))
+        cursor.execute(
+            "SELECT * FROM usuarios WHERE usuario = %s AND activo = TRUE",
+            (usuario,)
+        )
         fila = cursor.fetchone()
-        # TODO: si no hay fila -> return None
-        # TODO: verificar_password(password, fila["password_hash"])
-        # TODO: si es válido, construir Usuario.desde_fila(fila), guardarlo
-        #       en _usuario_actual y devolverlo
-        raise NotImplementedError
+        cursor.close()
+
+        if not fila:
+            return None
+        if not verificar_password(password, fila["password_hash"]):
+            return None
+
+        global _usuario_actual
+        _usuario_actual = Usuario.desde_fila(fila)
+        return _usuario_actual
     finally:
         conexion.close()
 
@@ -44,3 +42,51 @@ def cerrar_sesion():
 
 def obtener_usuario_actual() -> Usuario | None:
     return _usuario_actual
+
+
+# ---------------------------------------------------------
+# Profesores autorizados (catálogo, sin login propio)
+# Editable desde Gestión de Usuarios — ver decisiones del README.
+# ---------------------------------------------------------
+
+def listar_profesores(solo_activos: bool = True) -> list[dict]:
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    query = "SELECT * FROM profesores_autorizados"
+    if solo_activos:
+        query += " WHERE activo = TRUE"
+    query += " ORDER BY nombre_completo"
+    cursor.execute(query)
+    filas = cursor.fetchall()
+    cursor.close()
+    conexion.close()
+    return filas
+
+
+def agregar_profesor(nombre_completo: str, correo: str, telefono: str = None) -> int:
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "INSERT INTO profesores_autorizados (nombre_completo, correo, telefono) "
+        "VALUES (%s, %s, %s)",
+        (nombre_completo, correo, telefono)
+    )
+    conexion.commit()
+    nuevo_id = cursor.lastrowid
+    cursor.close()
+    conexion.close()
+    return nuevo_id
+
+
+def editar_profesor(id_profesor: int, nombre_completo: str, correo: str,
+                     telefono: str = None, activo: bool = True) -> None:
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "UPDATE profesores_autorizados SET nombre_completo = %s, correo = %s, "
+        "telefono = %s, activo = %s WHERE id = %s",
+        (nombre_completo, correo, telefono, activo, id_profesor)
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()
