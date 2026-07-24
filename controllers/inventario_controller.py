@@ -20,6 +20,7 @@ Esqueleto:
 
 from db.conexion import obtener_conexion
 from models.articulo import Articulo
+from utils.auditoria import registrar_movimiento
 
 
 def generar_codigo_inventario(prefijo):
@@ -80,6 +81,12 @@ def agregar_articulo(datos):
     nuevo_id = cursor.lastrowid
     cursor.close()
     conexion.close()
+    # --- Registro de auditoría ---
+    registrar_movimiento(
+        articulo_id=nuevo_id,
+        tipo_movimiento="alta",
+        detalle=f"Artículo agregado: {codigo_inventario} - {datos['nombre']}"
+    )
 
     return codigo_inventario, nuevo_id
 
@@ -116,6 +123,27 @@ def dar_de_baja(id_articulo):
     cursor.execute(
         "UPDATE articulos SET estado_disponibilidad = 'de_baja' WHERE id = %s",
         (id_articulo,)
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+    # --- Registro de auditoría ---
+    registrar_movimiento(
+        articulo_id=id_articulo,
+        tipo_movimiento="baja",
+        detalle=f"Artículo id={id_articulo} dado de baja"
+    )
+
+# ---------------------------------------------------------
+# Actualizar estado de disponibilidad
+# Usado por asignacion_controller.py al prestar/devolver un artículo.
+# ---------------------------------------------------------
+def actualizar_estado_articulo(id_articulo, nuevo_estado):
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "UPDATE articulos SET estado_disponibilidad = %s WHERE id = %s",
+        (nuevo_estado, id_articulo)
     )
     conexion.commit()
     cursor.close()

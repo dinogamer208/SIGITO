@@ -1,31 +1,54 @@
 """
 main.py — Punto de entrada de SIGITO.
 
-Responsable: se arma en conjunto una vez cada módulo esté listo.
-
-Qué debe hacer este archivo:
-1. Importar la config y verificar conexión a la base de datos (db/conexion.py).
-2. Levantar la ventana principal de Tkinter.
-3. Mostrar primero login_view; si el login es exitoso, abrir main_menu_view.
-4. Centralizar el manejo de errores no capturados (try/except alrededor del mainloop).
-
-Esqueleto:
+Flujo: verifica conexión a MySQL -> LoginView -> (login exitoso) -> Dashboard.
+Al cerrar sesión desde el Dashboard, vuelve a mostrar LoginView.
 """
 
 import tkinter as tk
-# from db.conexion import obtener_conexion
-# from views.login_view import LoginView
+from tkinter import messagebox
+
+from views.tema import aplicar_tema
+from db.conexion import hay_conexion_servidor
+
+
+def _mostrar_error_conexion():
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showerror(
+        "Error de conexión",
+        "No se pudo conectar al servidor de MySQL.\n\n"
+        "Verifica que el servicio esté corriendo y que config.py "
+        "tenga los datos correctos (host, puerto, usuario, contraseña)."
+    )
+    root.destroy()
+
+
+def mostrar_login():
+    from views.login_view import LoginView
+    LoginView(on_login_exitoso=mostrar_dashboard).mainloop()
+
+
+def mostrar_dashboard(usuario):
+    from dashboard_view import Dashboard
+    Dashboard(usuario=usuario, on_logout=mostrar_login).mainloop()
 
 
 def main():
-    root = tk.Tk()
-    root.title("SIGITO - Sistema de Gestión de Inventario Tecnológico/Ofimático")
-    root.geometry("900x600")
+    aplicar_tema()
 
-    # TODO: probar conexión a la base de datos aquí antes de mostrar la UI
-    # TODO: instanciar LoginView(root) y arrancar el flujo de login -> menú
+    if not hay_conexion_servidor():
+        _mostrar_error_conexion()
+        return
 
-    root.mainloop()
+    try:
+        mostrar_login()
+    except Exception as error:
+        _root = tk.Tk()
+        _root.withdraw()
+        messagebox.showerror("Error inesperado", str(error))
+        _root.destroy()
+        raise
 
 
 if __name__ == "__main__":

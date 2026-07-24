@@ -3,14 +3,9 @@ models/asignacion.py — Modelo de datos Asignación (préstamo/devolución).
 
 Responsable: Persona 4.
 
-Qué debe hacer este archivo:
-1. Definir una clase Asignacion con artículo, usuario y fechas de
-   préstamo/devolución.
-2. Puede incluir una propiedad esta_vencida() que compare la fecha
-   esperada de devolución contra la fecha actual (útil para
-   controllers/asignacion_controller.py y reportes_controller.py).
-
-Esqueleto:
+Representa una fila de `asignaciones`. El alumno no tiene login propio,
+así que sus datos (nombre, sección, año, teléfono, correo) se guardan
+directamente en la asignación en vez de una FK a `usuarios`.
 """
 
 from dataclasses import dataclass
@@ -22,17 +17,43 @@ from typing import Optional
 class Asignacion:
     id: int
     articulo_id: int
-    usuario_id: int
-    fecha_prestamo: datetime
-    fecha_devolucion_esperada: Optional[datetime]
-    fecha_devolucion_real: Optional[datetime]
+    nombre_completo: str
+    seccion: str
+    anio: str
+    telefono: str
+    correo: str
+    profesor_autoriza_id: int
+    hora_salida: datetime
+    hora_estimada_devolucion: datetime
+    hora_entrada_real: Optional[datetime]
+    estado: str
+    correo_aviso_enviado: bool
+    usuario_registro_id: int
+    usuario_devolucion_id: Optional[int]
+    fecha_creacion: Optional[datetime] = None
 
     @staticmethod
     def desde_fila(fila: dict) -> "Asignacion":
-        # TODO: mapear fila["campo"] -> Asignacion(...)
-        raise NotImplementedError
+        return Asignacion(
+            id=fila["id"],
+            articulo_id=fila["articulo_id"],
+            nombre_completo=fila["nombre_completo"],
+            seccion=fila["seccion"],
+            anio=fila["anio"],
+            telefono=fila["telefono"],
+            correo=fila["correo"],
+            profesor_autoriza_id=fila["profesor_autoriza_id"],
+            hora_salida=fila["hora_salida"],
+            hora_estimada_devolucion=fila["hora_estimada_devolucion"],
+            hora_entrada_real=fila.get("hora_entrada_real"),
+            estado=fila["estado"],
+            correo_aviso_enviado=bool(fila["correo_aviso_enviado"]),
+            usuario_registro_id=fila["usuario_registro_id"],
+            usuario_devolucion_id=fila.get("usuario_devolucion_id"),
+            fecha_creacion=fila.get("fecha_creacion"),
+        )
 
     def esta_vencida(self) -> bool:
-        # TODO: comparar fecha_devolucion_esperada con datetime.now()
-        # solo si fecha_devolucion_real todavía es None
-        raise NotImplementedError
+        if self.hora_entrada_real is not None:
+            return False
+        return datetime.now() > self.hora_estimada_devolucion

@@ -3,7 +3,9 @@
 -- Base de datos del sistema SIGITO (versión LOCAL, sin servidor remoto)
 -- =========================================================
 
-CREATE DATABASE IF NOT EXISTS sigito_db;
+CREATE DATABASE IF NOT EXISTS sigito_db
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
 USE sigito_db;
 
 -- ---------------------------------------------------------
@@ -93,7 +95,7 @@ CREATE TABLE historial_movimientos (
     articulo_id INT NOT NULL,
     asignacion_id INT NULL,
     tipo_movimiento ENUM('alta', 'prestamo', 'devolucion', 'baja', 'mantenimiento') NOT NULL,
-    usuario_id INT NOT NULL,
+    usuario_id INT NULL,
     fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     detalle TEXT,
     FOREIGN KEY (articulo_id) REFERENCES articulos(id),

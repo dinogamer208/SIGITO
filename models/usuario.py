@@ -9,8 +9,6 @@ Qué debe hacer este archivo:
    construirla a partir de un resultado de MySQL.
 2. Este archivo NO debe tener lógica de conexión ni de negocio pesada;
    eso va en controllers/auth_controller.py. Aquí solo se modela el dato.
-
-Esqueleto:
 """
 
 from dataclasses import dataclass
@@ -21,13 +19,21 @@ from datetime import datetime
 class Usuario:
     id: int
     nombre: str
-    correo: str
+    usuario: str
     rol: str
     activo: bool
-    creado_en: datetime = None
+    fecha_creacion: datetime = None
 
     @staticmethod
     def desde_fila(fila: dict) -> "Usuario":
-        """Construye un Usuario a partir de un dict (resultado de MySQL)."""
-        # TODO: mapear fila["campo"] -> Usuario(...)
-        raise NotImplementedError
+        """Construye un Usuario a partir de un dict (resultado de MySQL).
+        No incluye password_hash: nadie fuera de auth_controller debe
+        cargar el hash en memoria más tiempo del necesario."""
+        return Usuario(
+            id=fila["id"],
+            nombre=fila["nombre"],
+            usuario=fila["usuario"],
+            rol=fila["rol"],
+            activo=bool(fila["activo"]),
+            fecha_creacion=fila.get("fecha_creacion"),
+        )

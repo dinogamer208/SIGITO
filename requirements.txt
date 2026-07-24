@@ -1,7 +1,10 @@
 mysql-connector-python
 bcrypt
 python-dotenv
+customtkinter
+Pillow
+python-barcode
+reportlab
+openpyxl
 # Agregar según se necesite:
-# reportlab      -> exportar PDF (utils/exportador.py)
-# openpyxl       -> exportar Excel (utils/exportador.py)
 # cryptography   -> si se cifra la contraseña de correo (utils/seguridad.py)
