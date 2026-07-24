@@ -58,6 +58,17 @@ COLORES = {
     "texto_claro":          "#111827",
     "texto_sec_claro":      "#6B7280",
 
+    # Dashboard modo claro — equivalentes claros de la paleta oscura
+    "dash_claro_fondo":     "#F0F4F8",   # fondo general ventana
+    "dash_claro_content":   "#FFFFFF",   # área de contenido
+    "dash_claro_card":      "#FFFFFF",   # tarjetas KPI y paneles
+    "dash_claro_card_inner":"#F1F5F9",   # interior de paneles (gráficos)
+    "dash_claro_fila":      "#E8EFF6",   # filas de movimientos
+    "dash_claro_borde":     "#CBD5E1",   # bordes
+    "dash_claro_subtext":   "#64748B",   # texto secundario
+    "dash_claro_link":      "#2563EB",   # color de hora en movimientos
+    "dash_claro_sidebar":   "#FFFFFF",   # fondo del sidebar en modo claro
+
     # Estados de artículos (iguales en ambos modos)
     "disponible_fondo":     "#DCFCE7",
     "disponible_texto":     "#16A34A",
@@ -75,6 +86,23 @@ COLORES = {
     "exito":                "#16A34A",
     "advertencia":          "#D97706",
     "info":                 "#2563EB",
+
+    # Dashboard — fondos profundos (modo oscuro)
+    # Paleta azul marino oscura usada en dashboard_view.py
+    "dash_fondo":           "#08111F",   # fondo general de la ventana
+    "dash_sidebar":         "#101B2D",   # fondo del sidebar
+    "dash_content":         "#0D1626",   # fondo del área de contenido
+    "dash_card":            "#162338",   # fondo de tarjetas/paneles
+    "dash_card_inner":      "#111D30",   # fondo interior de paneles (gráficos)
+    "dash_fila":            "#1A263A",   # fondo de filas en panel de movimientos
+    "dash_borde":           "#314863",   # color de bordes y líneas divisoras
+    "dash_subtext":         "#9FB0C5",   # texto secundario del dashboard
+    "dash_link":            "#6FA8FF",   # texto de hora en movimientos
+    "dash_hover":           "#1B2D47",   # hover de botones del sidebar
+    "dash_grid":            "#13263E",   # líneas de la cuadrícula del fondo
+    "dash_hover_claro":     "#3D98FF",   # hover de botones azules y scrollbar
+    "dash_eje":             "#5C6B80",   # color de ejes en gráficas matplotlib
+    "dash_texto_donut":     "#AAB7C4",   # texto secundario dentro del donut
 }
 
 # ---------------------------------------------------------
@@ -115,6 +143,42 @@ def color_texto():
 
 def color_texto_secundario():
     return COLORES["texto_sec_oscuro"] if es_modo_oscuro() else COLORES["texto_sec_claro"]
+
+
+# ---------------------------------------------------------
+# Paleta del Dashboard (y demás ventanas internas: inventario,
+# asignaciones, reportes, usuarios) según el modo actual.
+# Centraliza lo que dashboard_view.py resuelve en _actualizar_colores,
+# para que las demás vistas usen exactamente los mismos tonos.
+# ---------------------------------------------------------
+def colores_dashboard():
+    if es_modo_oscuro():
+        return {
+            "fondo":       COLORES["dash_fondo"],
+            "sidebar":     COLORES["dash_sidebar"],
+            "content":     COLORES["dash_content"],
+            "card":        COLORES["dash_card"],
+            "card_inner":  COLORES["dash_card_inner"],
+            "borde":       COLORES["dash_borde"],
+            "texto":       COLORES["texto_oscuro"],
+            "subtext":     COLORES["dash_subtext"],
+            "fila":        COLORES["dash_fila"],
+            "link":        COLORES["dash_link"],
+            "grid":        COLORES["dash_grid"],
+        }
+    return {
+        "fondo":       COLORES["dash_claro_fondo"],
+        "sidebar":     COLORES["dash_claro_sidebar"],
+        "content":     COLORES["dash_claro_content"],
+        "card":        COLORES["dash_claro_card"],
+        "card_inner":  COLORES["dash_claro_card_inner"],
+        "borde":       COLORES["dash_claro_borde"],
+        "texto":       COLORES["texto_claro"],
+        "subtext":     COLORES["dash_claro_subtext"],
+        "fila":        COLORES["dash_claro_fila"],
+        "link":        COLORES["dash_claro_link"],
+        "grid":        "#D1D5DB",
+    }
 
 
 # ---------------------------------------------------------
