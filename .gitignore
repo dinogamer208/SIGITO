@@ -1,17 +1,17 @@
 # Python
-__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 venv/
 env/
 .venv/
 
-# Configuración local con credenciales reales
+# Credenciales locales (host/usuario/password reales de MySQL)
+.env
 config_local.py
 
-# Base de datos local (modo offline)
+# Base de datos local (modo offline) - ya no aplica pero se deja por si acaso
 *.db
-sigito_local.db
 
 # Archivos generados (no deben ir al repo, cada quien los genera localmente)
 assets/etiquetas/*.png
@@ -25,5 +25,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Scripts de prueba personales (opcional, si no quieres que se suban)
-probar_inventario*.py
+# Scripts de prueba personales
+probar_*.py
+generar_seed_data.py

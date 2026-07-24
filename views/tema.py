@@ -251,6 +251,24 @@ def aplicar_tema():
 
 
 # ---------------------------------------------------------
+# Workaround: en algunas instalaciones de Windows (Tcl/Tk 8.6.12,
+# el que traen empaquetado varias versiones de Python), la ventana
+# de CustomTkinter abre completamente en blanco hasta que el usuario
+# la mueve o redimensiona manualmente. Forzamos un resize de 1px
+# apenas se abre para disparar el repintado sin que se note.
+# Llamar al final del __init__ de cada ventana CTk (LoginView,
+# Dashboard, etc.) con: forzar_redibujo(self)
+# ---------------------------------------------------------
+def forzar_redibujo(ventana):
+    def _redibujar():
+        ancho = ventana.winfo_width()
+        alto = ventana.winfo_height()
+        ventana.geometry(f"{ancho + 1}x{alto}")
+        ventana.geometry(f"{ancho}x{alto}")
+    ventana.after(50, _redibujar)
+
+
+# ---------------------------------------------------------
 # Estilos reutilizables para widgets comunes
 # Usar como **kwargs al crear el widget
 # ---------------------------------------------------------

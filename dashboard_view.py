@@ -25,7 +25,7 @@ from PIL import Image
 from pathlib import Path
 from datetime import date
 
-from views.tema import COLORES, aplicar_tema
+from views.tema import COLORES, aplicar_tema, forzar_redibujo
 from controllers import inventario_controller, asignacion_controller, reportes_controller
 from controllers import auth_controller
 from utils import auditoria
@@ -77,6 +77,7 @@ class Dashboard(ctk.CTk):
 
         self.crear_fondo()
         self.crear_layout()
+        forzar_redibujo(self)
 
         # Los gráficos se dibujan automáticamente cuando el canvas
         # recibe su tamaño real (bind Configure en crear_panel)
