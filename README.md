@@ -35,10 +35,15 @@ SIGITO/
 │
 ├── views/
 │   ├── login_view.py                # (Persona 5) Pantalla de login
-│   ├── main_menu_view.py            # (Persona 5) Menú principal
-│   ├── inventario_view.py           # (Persona 1 + 5) Pantalla de inventario
-│   ├── asignacion_view.py           # (Persona 3 + 5) Pantalla de asignaciones
-│   └── reportes_view.py             # (Persona 4 + 5) Pantalla de reportes
+│   ├── main_menu_view.py            # (Persona 5) Menú principal (alternativo, no usado por defecto)
+│   ├── inventario_view.py           # (Persona 1 + 5) Ventana de inventario (ctk.CTkToplevel)
+│   ├── asignacion_view.py           # (Persona 3 + 5) Ventana de asignaciones (ctk.CTkToplevel)
+│   ├── reportes_view.py             # (Persona 4 + 5) Ventana de reportes (ctk.CTkToplevel)
+│   ├── usuarios_view.py             # (Persona 2 + 5) Ventana de profesores autorizados (ctk.CTkToplevel)
+│   ├── componentes.py               # (Persona 5) Widgets compartidos: tarjetas KPI, badges, filas de tabla
+│   └── tema.py                      # (Persona 5) Paleta de colores y estilos compartidos
+│
+├── dashboard_view.py                 # (Persona 5) Pantalla principal (ctk.CTk) tras el login
 │
 ├── utils/
 │   ├── validaciones.py              # Validación de formularios (compartido)
@@ -55,12 +60,18 @@ SIGITO/
 
 | Persona | Responsabilidad principal | Estado |
 |---|---|---|
-| **1** | BD + Servidor + Inventario + Códigos de barras | Módulo de lógica terminado y probado |
-| **2** | Usuarios (login) y profesores autorizados | Sin empezar |
-| **3** | Asignaciones (préstamos y devoluciones) | Sin empezar |
-| **4** | Correos, notificaciones y reportes | Sin empezar |
-| **5** | Diseño de interfaz (todas las pantallas) | Sin empezar |
-| **6** | Documentación, pruebas manuales y datos de ejemplo | Sin empezar |
+| **1** | BD + Servidor + Inventario + Códigos de barras | Terminado y probado |
+| **2** | Usuarios (login) y profesores autorizados | Terminado (login por `usuario`, CRUD de profesores) |
+| **3** | Asignaciones (préstamos y devoluciones) | Terminado (registrar_prestamo/devolucion, listar activas/vencidas) |
+| **4** | Correos, notificaciones y reportes | Reportes terminados; **monitor de correos SMTP cada 5 min y notificaciones nativas de Windows: pendiente** (requiere credenciales SMTP reales) |
+| **5** | Diseño de interfaz (todas las pantallas) | Terminado — login, dashboard con datos reales, e inventario/asignaciones/reportes/usuarios como ventanas propias (ctk.CTkToplevel) con tarjetas KPI y badges de estado, reutilizando componentes de `views/componentes.py` |
+| **6** | Documentación, pruebas manuales y datos de ejemplo | Datos de ejemplo cargados; **modo offline con SQLite/sincronización: pendiente** |
+
+### Pendiente para "producción" (fuera del alcance de esta pasada)
+- Modo offline con SQLite + sincronización al reconectar.
+- Monitor de correos cada 5 min (alumno + profesor) y notificación nativa de Windows ante atrasos.
+- Cifrado (Fernet) de la contraseña de aplicación SMTP.
+- Gestión completa de mantenimientos (el modelo `Mantenimiento` existe pero no tiene controller/vista propios).
 
 ## Cómo empezar (para cada integrante del equipo)
 
