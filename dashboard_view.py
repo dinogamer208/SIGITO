@@ -31,13 +31,14 @@ from controllers import auth_controller
 from utils import auditoria
 
 
-class Dashboard(ctk.CTk):
+class Dashboard(ctk.CTkToplevel):
 
-    def __init__(self, usuario=None, on_logout=None):
-        super().__init__()
+    def __init__(self, master, usuario=None, on_logout=None):
+        super().__init__(master)
 
         self.usuario = usuario
         self.on_logout = on_logout
+        self.protocol("WM_DELETE_WINDOW", self._cerrar_aplicacion)
 
         # --------------------------------------------------
         # Ajustar ventana al tamaño real de la pantalla
@@ -297,6 +298,9 @@ class Dashboard(ctk.CTk):
         self.destroy()
         if callback:
             callback()
+
+    def _cerrar_aplicacion(self):
+        self.master.destroy()
 
     # ==========================================================
     # BOTÓN SIDEBAR
@@ -786,5 +790,8 @@ class Dashboard(ctk.CTk):
 
 if __name__ == "__main__":
     aplicar_tema()
-    app = Dashboard()
-    app.mainloop()
+    _root = ctk.CTk()
+    _root.withdraw()
+    app = Dashboard(_root)
+    app.protocol("WM_DELETE_WINDOW", _root.destroy)
+    _root.mainloop()
