@@ -384,7 +384,13 @@ class Dashboard(ctk.CTkToplevel):
         contenedor = ctk.CTkFrame(self.content, fg_color="transparent")
         contenedor.pack(fill="x", padx=24)
 
-        resumen = {fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()}
+        # Se guarda en self para que _dibujar_donut() reuse estos mismos
+        # datos en vez de repetir la consulta a la base de datos.
+        self._resumen_estado = {
+            fila["estado"]: fila["cantidad"]
+            for fila in reportes_controller.resumen_articulos_por_estado()
+        }
+        resumen = self._resumen_estado
         disponibles = resumen.get("disponible", 0)
         prestados = resumen.get("prestado", 0)
         de_baja = resumen.get("de_baja", 0)
@@ -593,7 +599,9 @@ class Dashboard(ctk.CTkToplevel):
 
     def _dibujar_donut(self, canvas):
 
-        resumen = {fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()}
+        # Reutiliza el resumen ya consultado en crear_kpis() en vez de
+        # repetir la misma consulta a la base de datos.
+        resumen = self._resumen_estado
         _ETIQUETAS = {"disponible": "Disponibles", "prestado": "Prestados", "de_baja": "De baja"}
         _COLORES_ESTADO = {
             "disponible": COLORES["disponible_texto"],
