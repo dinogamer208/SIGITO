@@ -15,9 +15,9 @@ from controllers.auth_controller import iniciar_sesion
 from views.tema import COLORES, color_fondo, color_card, color_texto, ESTILO_BOTON_PRIMARIO, forzar_redibujo
 
 
-class LoginView(ctk.CTk):
-    def __init__(self, on_login_exitoso=None):
-        super().__init__()
+class LoginView(ctk.CTkToplevel):
+    def __init__(self, master, on_login_exitoso=None):
+        super().__init__(master)
         self.on_login_exitoso = on_login_exitoso
 
         self.update_idletasks()
@@ -28,9 +28,13 @@ class LoginView(ctk.CTk):
         self.title("SIGITO - Iniciar sesión")
         self.geometry(f"{ancho_pantalla}x{alto_util}+0+0")
         self.configure(fg_color=color_fondo())
+        self.protocol("WM_DELETE_WINDOW", self._cerrar_aplicacion)
 
         self._construir_widgets()
         forzar_redibujo(self)
+
+    def _cerrar_aplicacion(self):
+        self.master.destroy()
 
     def _construir_widgets(self):
         tarjeta = ctk.CTkFrame(

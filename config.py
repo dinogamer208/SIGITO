@@ -27,7 +27,7 @@ DB_CONFIG = {
    "host": os.getenv("SIGITO_DB_HOST", "localhost"),
    "port": int(os.getenv("SIGITO_DB_PORT", "3306")),
    "user": os.getenv("SIGITO_DB_USER", "root"),
-   "password": os.getenv("SIGITO_DB_PASSWORD", "sigito2026"),
+   "password": os.getenv("SIGITO_DB_PASSWORD", "300109"),
    "database": os.getenv("SIGITO_DB_NAME", "sigito_db"),
    "charset": "utf8mb4",
    "collation": "utf8mb4_unicode_ci"
