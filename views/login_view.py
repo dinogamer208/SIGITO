@@ -20,9 +20,13 @@ class LoginView(ctk.CTk):
         super().__init__()
         self.on_login_exitoso = on_login_exitoso
 
+        self.update_idletasks()
+        ancho_pantalla = self.winfo_screenwidth()
+        alto_pantalla  = self.winfo_screenheight()
+        alto_util      = alto_pantalla - 48   # resta barra de tareas (~48px)
+
         self.title("SIGITO - Iniciar sesión")
-        self.geometry("380x420")
-        self.resizable(False, False)
+        self.geometry(f"{ancho_pantalla}x{alto_util}+0+0")
         self.configure(fg_color=color_fondo())
 
         self._construir_widgets()
@@ -31,9 +35,11 @@ class LoginView(ctk.CTk):
     def _construir_widgets(self):
         tarjeta = ctk.CTkFrame(
             self, fg_color=color_card(), corner_radius=16,
-            border_width=1, border_color=COLORES["card_borde_oscuro"]
+            border_width=1, border_color=COLORES["card_borde_oscuro"],
+            width=380, height=420
         )
-        tarjeta.pack(expand=True, fill="both", padx=30, pady=30)
+        tarjeta.place(relx=0.5, rely=0.5, anchor="center")
+        tarjeta.pack_propagate(False)
 
         ctk.CTkLabel(
             tarjeta, text="SIGITO",

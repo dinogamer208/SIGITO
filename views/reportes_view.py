@@ -1,9 +1,10 @@
 """
 views/reportes_view.py — Pantalla de reportes.
 
-Ventana propia (ctk.CTkToplevel), misma lógica de clase que Dashboard:
-arma su layout con los colores de views/tema.py y los componentes
-compartidos de views/componentes.py (tarjetas KPI, badges, tabla).
+Frame embebido dentro del área de contenido del Dashboard (se muestra
+al navegar desde el sidebar, reemplazando la vista anterior): arma su
+layout con los colores de views/tema.py y los componentes compartidos
+de views/componentes.py (tarjetas KPI, badges, tabla).
 """
 
 import customtkinter as ctk
@@ -15,26 +16,18 @@ from views.tema import COLORES, colores_dashboard, ESTILO_BOTON_PRIMARIO, ESTILO
 from views.componentes import crear_card, crear_encabezado, crear_kpi_card, crear_encabezado_tabla, crear_fila_tabla
 
 
-class ReportesView(ctk.CTkToplevel):
+class ReportesView(ctk.CTkFrame):
 
     ANCHOS = (110, 220, 200, 170)
 
     def __init__(self, master):
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
 
         self.c = colores_dashboard()
         self._datos_actuales = []
 
-        self.title("Reportes")
-        self.geometry("920x640")
-        self.minsize(760, 520)
-        self.configure(fg_color=self.c["fondo"])
-
         self._construir_layout()
         self._cargar_resumen()
-
-        self.transient(master)
-        self.grab_set()
 
     # ------------------------------------------------------------
     def _construir_layout(self):

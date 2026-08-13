@@ -38,6 +38,7 @@ class Dashboard(ctk.CTk):
 
         self.usuario = usuario
         self.on_logout = on_logout
+        self._vista_actual = "dashboard"
 
         # --------------------------------------------------
         # Ajustar ventana al tamaño real de la pantalla
@@ -143,7 +144,7 @@ class Dashboard(ctk.CTk):
             border_color=self.COLOR_BORDER
         )
         self.content.pack(side="left", fill="both", expand=True, padx=(14, 0))
-        self.crear_header()
+        self._mostrar_vista(self._vista_actual)
 
     # ==========================================================
     # SIDEBAR
@@ -180,12 +181,21 @@ class Dashboard(ctk.CTk):
         self.boton_usuarios     = self.crear_boton_sidebar("usuarios.png",     "Usuarios")
         self.boton_config       = self.crear_boton_sidebar("configuracion.png","Configuración")
 
-        self.boton_dashboard.configure(fg_color=self.COLOR_PRIMARY)
-        self.boton_inventario.configure(command=self._abrir_inventario)
-        self.boton_asignaciones.configure(command=self._abrir_asignaciones)
-        self.boton_reportes.configure(command=self._abrir_reportes)
-        self.boton_usuarios.configure(command=self._abrir_usuarios)
+        self._botones_nav = {
+            "dashboard":    self.boton_dashboard,
+            "inventario":   self.boton_inventario,
+            "asignaciones": self.boton_asignaciones,
+            "reportes":     self.boton_reportes,
+            "usuarios":     self.boton_usuarios,
+        }
+
+        self.boton_dashboard.configure(command=lambda: self._mostrar_vista("dashboard"))
+        self.boton_inventario.configure(command=lambda: self._mostrar_vista("inventario"))
+        self.boton_asignaciones.configure(command=lambda: self._mostrar_vista("asignaciones"))
+        self.boton_reportes.configure(command=lambda: self._mostrar_vista("reportes"))
+        self.boton_usuarios.configure(command=lambda: self._mostrar_vista("usuarios"))
         self.boton_config.configure(command=self._abrir_config)
+        self._resaltar_boton(self._vista_actual)
 
         ctk.CTkFrame(self.sidebar, fg_color="transparent").pack(expand=True, fill="both")
 
@@ -272,21 +282,31 @@ class Dashboard(ctk.CTk):
         self.main.destroy()
         self.crear_layout()
 
-    def _abrir_inventario(self):
-        from views.inventario_view import InventarioView
-        InventarioView(self)
+    def _resaltar_boton(self, nombre):
+        for clave, boton in self._botones_nav.items():
+            boton.configure(fg_color=self.COLOR_PRIMARY if clave == nombre else "transparent")
 
-    def _abrir_asignaciones(self):
-        from views.asignacion_view import AsignacionView
-        AsignacionView(self, usuario=self.usuario)
+    def _mostrar_vista(self, nombre):
+        self._vista_actual = nombre
+        self._resaltar_boton(nombre)
 
-    def _abrir_reportes(self):
-        from views.reportes_view import ReportesView
-        ReportesView(self)
+        for hijo in self.content.winfo_children():
+            hijo.destroy()
 
-    def _abrir_usuarios(self):
-        from views.usuarios_view import UsuariosView
-        UsuariosView(self)
+        if nombre == "dashboard":
+            self.crear_header(self.content)
+        elif nombre == "inventario":
+            from views.inventario_view import InventarioView
+            InventarioView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "asignaciones":
+            from views.asignacion_view import AsignacionView
+            AsignacionView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "reportes":
+            from views.reportes_view import ReportesView
+            ReportesView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "usuarios":
+            from views.usuarios_view import UsuariosView
+            UsuariosView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
 
     def _abrir_config(self):
         messagebox.showinfo("Configuración", "Sección de configuración próximamente.")
@@ -324,9 +344,9 @@ class Dashboard(ctk.CTk):
     # HEADER
     # ==========================================================
 
-    def crear_header(self):
+    def crear_header(self, padre):
 
-        header = ctk.CTkFrame(self.content, height=80, fg_color="transparent")
+        header = ctk.CTkFrame(padre, height=80, fg_color="transparent")
         header.pack(fill="x", padx=24, pady=(20, 14))
         header.pack_propagate(False)
 
@@ -369,18 +389,23 @@ class Dashboard(ctk.CTk):
             font=("Segoe UI", 12, "bold")
         ).pack(pady=(8, 0))
 
-        self.crear_kpis()
+        self.crear_kpis(padre)
 
     # ==========================================================
     # KPIs
     # ==========================================================
 
-    def crear_kpis(self):
+    def crear_kpis(self, padre):
 
-        contenedor = ctk.CTkFrame(self.content, fg_color="transparent")
+        contenedor = ctk.CTkFrame(padre, fg_color="transparent")
         contenedor.pack(fill="x", padx=24)
 
-        resumen = {fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()}
+        # Se consulta una sola vez y se reutiliza en el donut (evita
+        # repetir la misma consulta cuando <Configure> dispara el redibujo).
+        self._resumen_estados = {
+            fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()
+        }
+        resumen = self._resumen_estados
         disponibles = resumen.get("disponible", 0)
         prestados = resumen.get("prestado", 0)
         de_baja = resumen.get("de_baja", 0)
@@ -415,15 +440,20 @@ class Dashboard(ctk.CTk):
                 text_color=self.COLOR_SUBTEXT
             ).pack(pady=(0, 16))
 
-        self.crear_dashboard()
+        self.crear_dashboard(padre)
 
     # ==========================================================
     # DASHBOARD (grid 2x2)
     # ==========================================================
 
-    def crear_dashboard(self):
+    def crear_dashboard(self, padre):
 
-        dashboard = ctk.CTkFrame(self.content, fg_color="transparent")
+        # Se consultan una sola vez y se reutilizan en cada redibujo del
+        # canvas (evita repetir la consulta cada vez que <Configure> dispara).
+        self._datos_categoria    = reportes_controller.articulos_por_categoria()
+        self._datos_asignaciones = reportes_controller.asignaciones_por_mes(meses=6)
+
+        dashboard = ctk.CTkFrame(padre, fg_color="transparent")
         dashboard.pack(fill="both", expand=True, padx=24, pady=(14, 20))
 
         dashboard.grid_rowconfigure(0, weight=1, uniform="fila")
@@ -485,7 +515,7 @@ class Dashboard(ctk.CTk):
 
     def _dibujar_barras(self, canvas):
 
-        filas = reportes_controller.articulos_por_categoria()
+        filas = self._datos_categoria
         categorias = [fila["categoria"] for fila in filas]
         cantidades  = [fila["cantidad"] for fila in filas]
 
@@ -535,7 +565,7 @@ class Dashboard(ctk.CTk):
         _MESES_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                      "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
-        filas = reportes_controller.asignaciones_por_mes(meses=6)
+        filas = self._datos_asignaciones
         meses     = [_MESES_ES[int(fila["mes"].split("-")[1]) - 1] for fila in filas]
         prestamos = [fila["cantidad"] for fila in filas]
 
@@ -589,7 +619,7 @@ class Dashboard(ctk.CTk):
 
     def _dibujar_donut(self, canvas):
 
-        resumen = {fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()}
+        resumen = self._resumen_estados
         _ETIQUETAS = {"disponible": "Disponibles", "prestado": "Prestados", "de_baja": "De baja"}
         _COLORES_ESTADO = {
             "disponible": COLORES["disponible_texto"],
@@ -763,7 +793,13 @@ class Dashboard(ctk.CTk):
     # CARGAR IMAGEN
     # ==========================================================
 
+    _CACHE_IMAGENES = {}
+
     def cargar_imagen(self, nombre, tamaño):
+
+        clave = (nombre, tamaño)
+        if clave in Dashboard._CACHE_IMAGENES:
+            return Dashboard._CACHE_IMAGENES[clave]
 
         ruta = self.ASSETS / nombre
 
@@ -773,11 +809,13 @@ class Dashboard(ctk.CTk):
         imagen = Image.open(ruta)
         imagen.thumbnail((tamaño, tamaño), Image.LANCZOS)
 
-        return ctk.CTkImage(
+        ctk_imagen = ctk.CTkImage(
             light_image=imagen,
             dark_image=imagen,
             size=imagen.size
         )
+        Dashboard._CACHE_IMAGENES[clave] = ctk_imagen
+        return ctk_imagen
 
 
 # ==========================================================
