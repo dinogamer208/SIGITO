@@ -39,6 +39,7 @@ class Dashboard(ctk.CTkToplevel):
         self.usuario = usuario
         self.on_logout = on_logout
         self._vista_actual = "dashboard"
+        self._after_paneles = None   # id del after() que arma el grid 2x2
         self.protocol("WM_DELETE_WINDOW", self._cerrar_aplicacion)
 
         # --------------------------------------------------
@@ -89,11 +90,33 @@ class Dashboard(ctk.CTkToplevel):
         Vincula el dibujado del gráfico al evento Configure del canvas.
         Esto garantiza que el canvas ya tiene su tamaño real cuando se dibuja.
         Se redibuja también cuando el usuario cambia el tamaño de la ventana.
+
+        Durante el armado del layout, <Configure> se dispara varias veces
+        seguidas (el canvas va recibiendo tamaños intermedios). Antes eso
+        redibujaba el gráfico completo 3-5 veces. Ahora se hace debounce:
+        se agenda el dibujo con after() y cada nuevo Configure cancela el
+        anterior, así solo se dibuja una vez con el tamaño ya estable. Se
+        ignora además el Configure que no cambia el tamaño.
         """
-        def al_redimensionar(event):
+        estado: dict = {"after": None, "size": None}
+
+        def dibujar():
+            estado["after"] = None
+            if not canvas.winfo_exists():
+                return
             canvas.configure(bg=self.COLOR_CARD_INNER)
             canvas.delete("all")
             fn(canvas)
+
+        def al_redimensionar(event):
+            size = (event.width, event.height)
+            if size == estado["size"]:
+                return
+            estado["size"] = size
+            if estado["after"] is not None:
+                canvas.after_cancel(estado["after"])
+            estado["after"] = canvas.after(60, dibujar)
+
         canvas.bind("<Configure>", al_redimensionar)
 
     # ==========================================================
@@ -291,6 +314,13 @@ class Dashboard(ctk.CTkToplevel):
         self._vista_actual = nombre
         self._resaltar_boton(nombre)
 
+        # Si había un armado de paneles del dashboard pendiente y se
+        # cambia de vista antes de que corra, cancelarlo (dibujaría sobre
+        # un contenedor ya destruido).
+        if self._after_paneles is not None:
+            self.after_cancel(self._after_paneles)
+            self._after_paneles = None
+
         for hijo in self.content.winfo_children():
             hijo.destroy()
 
@@ -444,6 +474,16 @@ class Dashboard(ctk.CTkToplevel):
                 text_color=self.COLOR_SUBTEXT
             ).pack(pady=(0, 16))
 
+        # El grid 2x2 de paneles (gráficos + movimientos) es la parte más
+        # cara del armado (~600 ms de widgets + 3 consultas). Se difiere un
+        # tick para que la ventana ya aparezca con sidebar, header y KPIs;
+        # los paneles se rellenan enseguida sin bloquear el primer pintado.
+        self._after_paneles = self.after(10, self._armar_paneles, padre)
+
+    def _armar_paneles(self, padre):
+        self._after_paneles = None
+        if self._vista_actual != "dashboard" or not padre.winfo_exists():
+            return
         self.crear_dashboard(padre)
 
     # ==========================================================

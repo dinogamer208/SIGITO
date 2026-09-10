@@ -7,7 +7,7 @@ Responsable: Persona 2.
 
 from db.conexion import obtener_conexion
 from models.usuario import Usuario
-from utils.seguridad import verificar_password
+from utils.seguridad import hash_password, verificar_password, necesita_rehash
 
 _usuario_actual: Usuario | None = None
 
@@ -28,11 +28,32 @@ def iniciar_sesion(usuario: str, password: str) -> Usuario | None:
         if not verificar_password(password, fila["password_hash"]):
             return None
 
+        if necesita_rehash(fila["password_hash"]):
+            _regenerar_hash(conexion, fila["id"], password)
+
         global _usuario_actual
         _usuario_actual = Usuario.desde_fila(fila)
         return _usuario_actual
     finally:
         conexion.close()
+
+
+def _regenerar_hash(conexion, usuario_id: int, password: str) -> None:
+    """
+    Reescribe el password_hash del usuario con el costo bcrypt actual.
+    El login ya se validó; si el UPDATE falla no se interrumpe la sesión,
+    solo se reintentará el rehash en el próximo login.
+    """
+    try:
+        cursor = conexion.cursor()
+        cursor.execute(
+            "UPDATE usuarios SET password_hash = %s WHERE id = %s",
+            (hash_password(password), usuario_id),
+        )
+        conexion.commit()
+        cursor.close()
+    except Exception:
+        pass
 
 
 def cerrar_sesion():

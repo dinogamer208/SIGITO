@@ -17,15 +17,24 @@ from db.conexion import hay_conexion_servidor, obtener_conexion
 
 def _precalentar_pool():
     """
-    Abre y libera una conexión para forzar la creación del pool de
-    conexiones (db/conexion.py) en un hilo aparte, mientras el usuario
-    todavía está mirando/llenando el login. Así el costo de abrir las
-    conexiones del pool no se siente como demora al iniciar sesión.
+    Corre en un hilo aparte mientras el usuario mira/llena el login, para
+    que al iniciar sesión no se sientan como demora dos costos:
+
+    1. Crear el pool de conexiones (db/conexion.py): abrir una conexión y
+       liberarla fuerza su creación.
+    2. Importar dashboard_view (arrastra customtkinter ya cargado, pero
+       también su árbol de controllers): ~450 ms la primera vez. Al
+       precargarlo aquí, mostrar_dashboard() ya lo encuentra en caché.
     """
     try:
         obtener_conexion().close()
     except Exception:
         pass  # si falla, cada consulta seguirá intentando conectar normalmente
+
+    try:
+        import dashboard_view  # noqa: F401 - precarga, se usa en mostrar_dashboard
+    except Exception:
+        pass  # si falla, mostrar_dashboard() lo importará de forma normal
 
 # Root oculto único que vive durante toda la ejecución. Login y Dashboard
 # son CTkToplevel de este root (no CTk propios): crear y destruir varios
