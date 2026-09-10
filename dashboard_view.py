@@ -4,18 +4,14 @@ views/dashboard_view.py
 Pantalla principal del sistema SIGITO después del login.
 Muestra KPIs, gráficos de inventario y últimos movimientos.
 
-INTEGRACIÓN CON EL BACKEND (Persona 1 y 4):
-Los datos marcados con # TODO están hardcodeados por ahora.
-Cuando los demás módulos estén listos, reemplazar con:
-    - KPIs         → listar_articulos() agrupado por estado (Persona 1)
-    - Movimientos  → listar_historial_por_articulo() de utils/auditoria.py (Persona 1)
-    - Categorías   → listar_categorias() con conteo de artículos (Persona 1)
-    - Asignaciones → listar_asignaciones_activas() agrupado por mes (Persona 3)
+Todos los datos vienen de la BD:
+    - KPIs y donut  → reportes_controller.resumen_articulos_por_estado()
+    - Movimientos   → auditoria.listar_historial_reciente()
+    - Categorías    → reportes_controller.articulos_por_categoria()
+    - Asignaciones  → reportes_controller.asignaciones_por_mes()
 
-NOTA para main.py (Persona 1):
-    El punto de entrada del sistema es main.py.
-    El bloque if __name__ == '__main__' es solo para probar
-    la vista de forma aislada mientras se desarrolla.
+NOTA: el punto de entrada del sistema es main.py. El bloque
+if __name__ == '__main__' de abajo es solo para probar la vista aislada.
 """
 
 import tkinter as tk

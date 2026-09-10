@@ -39,7 +39,12 @@ DB_CONFIG = {
 SQLITE_LOCAL_PATH = "sigito_local.db"
 
 # --- SMTP (reportes / notificaciones) ---
+# Solo host y puerto de Gmail. El remitente y la contraseña de aplicación
+# reales se configuran desde la pantalla de Configuración y se guardan
+# cifrados en la tabla `configuracion` (ver controllers/config_controller.py
+# y utils/seguridad.py). Estas variables de entorno son solo un fallback
+# opcional para desarrollo.
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 SMTP_USER = os.getenv("SIGITO_SMTP_USER", "")
-SMTP_APP_PASSWORD = os.getenv("SIGITO_SMTP_APP_PASSWORD", "")  # TODO: cifrar si se guarda en BD
+SMTP_APP_PASSWORD = os.getenv("SIGITO_SMTP_APP_PASSWORD", "")
