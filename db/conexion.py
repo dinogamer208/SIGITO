@@ -15,19 +15,46 @@ Qué debe hacer este archivo:
 Esqueleto:
 """
 
+import threading
+
 import mysql.connector
-from mysql.connector import Error
+from mysql.connector import Error, pooling
 from config import DB_CONFIG
+
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _obtener_pool():
+    """
+    Crea el pool de conexiones la primera vez que se necesita (no al
+    importar el módulo, para no intentar conectar antes de que main.py
+    valide que el servidor está disponible). main.py la precalienta en
+    un hilo aparte, así que el lock evita crear el pool dos veces si el
+    hilo de precalentado y el login caen al mismo tiempo.
+    """
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = pooling.MySQLConnectionPool(
+                    pool_name="sigito_pool",
+                    pool_size=3,
+                    **DB_CONFIG
+                )
+    return _pool
+
 
 def obtener_conexion():
     """
-    Devuelve una conexión activa a MySQL.
+    Devuelve una conexión del pool, lista para usar. Cada obtener_conexion()
+    ya no abre un handshake TCP+auth nuevo: reutiliza una de las conexiones
+    del pool (conexion.close() la libera de vuelta al pool en vez de cerrarla).
     Lanza una excepción si no logra conectar (para que quien la use
     decida qué hacer: mostrar error, o caer a modo offline).
     """
     try:
-        conexion = mysql.connector.connect(**DB_CONFIG)
-        return conexion
+        return _obtener_pool().get_connection()
     except Error as e:
         print(f"[ERROR] No se pudo conectar a MySQL: {e}")
         raise

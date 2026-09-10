@@ -3,19 +3,21 @@ config.py — Configuración de conexión a MySQL (y SMTP si aplica).
 
 Responsable: Persona 1 (base de datos / servidor).
 
-Los valores de abajo son el default para desarrollo local (cada quien
-con su propio MySQL en su PC, usuario root / password sigito2026).
+Ningún valor sensible (host/usuario/contraseña reales) vive en este
+archivo: se leen de un `.env` en la raíz del proyecto, que NO se sube
+al repo (ver .gitignore). Copia `.env.example` a `.env` y rellena tus
+valores locales:
 
-Cuando exista un servidor central, cada PC solo necesita un archivo
-`.env` (no se sube al repo, ver .gitignore) con, por ejemplo:
+    cp .env.example .env
 
-    SIGITO_DB_HOST=192.168.1.50
+    SIGITO_DB_HOST=localhost
     SIGITO_DB_PORT=3306
-    SIGITO_DB_USER=sigito_app
-    SIGITO_DB_PASSWORD=la-password-real
+    SIGITO_DB_USER=root
+    SIGITO_DB_PASSWORD=tu-password-local
     SIGITO_DB_NAME=sigito_db
 
-No hace falta tocar este archivo ni el código para hacer el cambio.
+Los defaults de abajo solo cubren host/puerto/usuario/nombre para no
+tener que escribir todo; la contraseña siempre viene del `.env`.
 """
 
 import os
@@ -27,7 +29,7 @@ DB_CONFIG = {
    "host": os.getenv("SIGITO_DB_HOST", "localhost"),
    "port": int(os.getenv("SIGITO_DB_PORT", "3306")),
    "user": os.getenv("SIGITO_DB_USER", "root"),
-   "password": os.getenv("SIGITO_DB_PASSWORD", "sigito2026"),
+   "password": os.getenv("SIGITO_DB_PASSWORD", ""),
    "database": os.getenv("SIGITO_DB_NAME", "sigito_db"),
    "charset": "utf8mb4",
    "collation": "utf8mb4_unicode_ci"
@@ -37,7 +39,12 @@ DB_CONFIG = {
 SQLITE_LOCAL_PATH = "sigito_local.db"
 
 # --- SMTP (reportes / notificaciones) ---
+# Solo host y puerto de Gmail. El remitente y la contraseña de aplicación
+# reales se configuran desde la pantalla de Configuración y se guardan
+# cifrados en la tabla `configuracion` (ver controllers/config_controller.py
+# y utils/seguridad.py). Estas variables de entorno son solo un fallback
+# opcional para desarrollo.
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 SMTP_USER = os.getenv("SIGITO_SMTP_USER", "")
-SMTP_APP_PASSWORD = os.getenv("SIGITO_SMTP_APP_PASSWORD", "")  # TODO: cifrar si se guarda en BD
+SMTP_APP_PASSWORD = os.getenv("SIGITO_SMTP_APP_PASSWORD", "")

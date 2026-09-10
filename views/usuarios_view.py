@@ -1,8 +1,8 @@
 """
 views/usuarios_view.py — Gestión de profesores autorizados.
 
-Ventana propia (antes vivía embebida dentro de dashboard_view._abrir_usuarios).
-Sigue la misma lógica de clase que Dashboard: ctk.CTkToplevel que arma su
+Frame embebido dentro del área de contenido del Dashboard (se muestra
+al navegar desde el sidebar, reemplazando la vista anterior). Arma su
 propio layout con los colores de views/tema.py.
 """
 
@@ -14,25 +14,17 @@ from views.componentes import crear_card, crear_encabezado, crear_encabezado_tab
 from controllers import auth_controller
 
 
-class UsuariosView(ctk.CTkToplevel):
+class UsuariosView(ctk.CTkFrame):
 
     ANCHOS = (180, 220, 140)
 
     def __init__(self, master):
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
 
         self.c = colores_dashboard()
 
-        self.title("Profesores autorizados")
-        self.geometry("620x560")
-        self.minsize(560, 460)
-        self.configure(fg_color=self.c["fondo"])
-
         self._construir_layout()
         self._cargar_profesores()
-
-        self.transient(master)
-        self.grab_set()
 
     def _construir_layout(self):
         contenedor = ctk.CTkFrame(self, fg_color="transparent")

@@ -22,6 +22,7 @@ Dependencia:
 """
 
 import customtkinter as ctk
+from customtkinter.windows.widgets.core_rendering.draw_engine import DrawEngine
 
 
 # ---------------------------------------------------------
@@ -248,6 +249,14 @@ def aplicar_tema():
     ctk.set_default_color_theme("blue")
     ctk.set_appearance_mode("dark")   # modo oscuro por defecto
     _modo_actual[0] = "dark"
+
+    # En Windows, CustomTkinter dibuja las esquinas redondeadas con
+    # "font_shapes" por defecto: nítido pero lento (cada widget hace
+    # varias llamadas a Tcl para renderizar glifos de círculo). Con
+    # tantos frames/botones redondeados, el Dashboard tardaba ~1.3 s en
+    # construirse. "polygon_shapes" las dibuja con polígonos: casi
+    # idéntico a la vista y ~40 % más rápido en el total de widgets.
+    DrawEngine.preferred_drawing_method = "polygon_shapes"
 
 
 # ---------------------------------------------------------

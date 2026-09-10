@@ -1,9 +1,10 @@
 """
 views/inventario_view.py — Pantalla de inventario.
 
-Ventana propia (ctk.CTkToplevel), misma lógica de clase que Dashboard:
-arma su layout con los colores de views/tema.py y los componentes
-compartidos de views/componentes.py (tarjetas KPI, badges, tabla).
+Frame embebido dentro del área de contenido del Dashboard (se muestra
+al navegar desde el sidebar, reemplazando la vista anterior): arma su
+layout con los colores de views/tema.py y los componentes compartidos
+de views/componentes.py (tarjetas KPI, badges, tabla).
 """
 
 import customtkinter as ctk
@@ -21,26 +22,18 @@ from views.componentes import (
 )
 
 
-class InventarioView(ctk.CTkToplevel):
+class InventarioView(ctk.CTkFrame):
 
     ANCHOS = (95, 190, 120, 110, 120)
 
     def __init__(self, master):
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
 
         self.c = colores_dashboard()
         self._categorias = {cat["nombre"]: cat["id"] for cat in listar_categorias()}
 
-        self.title("Inventario")
-        self.geometry("1080x640")
-        self.minsize(820, 520)
-        self.configure(fg_color=self.c["fondo"])
-
         self._construir_layout()
         self._cargar_articulos()
-
-        self.transient(master)
-        self.grab_set()
 
     # ------------------------------------------------------------
     def _construir_layout(self):

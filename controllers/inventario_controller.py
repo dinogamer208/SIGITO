@@ -191,17 +191,20 @@ def listar_articulos(categoria_id=None, estado_disponibilidad=None):
 
     return [Articulo(**fila) for fila in filas]
 
-import barcode
-from barcode.writer import ImageWriter
-from PIL import Image, ImageDraw, ImageFont
-import os
-
-
 def generar_etiqueta(codigo_inventario, nombre_articulo, carpeta_salida="assets/etiquetas"):
     """
     Genera una imagen PNG con el código de barras + el nombre del artículo,
     lista para imprimir y pegar en el equipo físico.
     """
+    # Imports locales: barcode/PIL son pesados (~100-260 ms) y solo se
+    # necesitan aquí. Dejarlos a nivel de módulo hacía que abrir el
+    # dashboard (que importa este controller) pagara ese costo siempre.
+    import os
+
+    import barcode
+    from barcode.writer import ImageWriter
+    from PIL import Image, ImageDraw, ImageFont
+
     os.makedirs(carpeta_salida, exist_ok=True)
 
     # 1. Generar el código de barras base (sin texto propio del código)

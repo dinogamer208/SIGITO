@@ -7,9 +7,11 @@ Responsable: Persona 2.
 
 from db.conexion import obtener_conexion
 from models.usuario import Usuario
-from utils.seguridad import verificar_password
+from utils.seguridad import hash_password, verificar_password, necesita_rehash
 
 _usuario_actual: Usuario | None = None
+
+LONGITUD_MINIMA_PASSWORD = 6
 
 
 def iniciar_sesion(usuario: str, password: str) -> Usuario | None:
@@ -28,6 +30,9 @@ def iniciar_sesion(usuario: str, password: str) -> Usuario | None:
         if not verificar_password(password, fila["password_hash"]):
             return None
 
+        if necesita_rehash(fila["password_hash"]):
+            _regenerar_hash(conexion, fila["id"], password)
+
         global _usuario_actual
         _usuario_actual = Usuario.desde_fila(fila)
         return _usuario_actual
@@ -35,9 +40,79 @@ def iniciar_sesion(usuario: str, password: str) -> Usuario | None:
         conexion.close()
 
 
+def _regenerar_hash(conexion, usuario_id: int, password: str) -> None:
+    """
+    Reescribe el password_hash del usuario con el costo bcrypt actual.
+    El login ya se validó; si el UPDATE falla no se interrumpe la sesión,
+    solo se reintentará el rehash en el próximo login.
+    """
+    try:
+        cursor = conexion.cursor()
+        cursor.execute(
+            "UPDATE usuarios SET password_hash = %s WHERE id = %s",
+            (hash_password(password), usuario_id),
+        )
+        conexion.commit()
+        cursor.close()
+    except Exception:
+        pass
+
+
 def cerrar_sesion():
     global _usuario_actual
     _usuario_actual = None
+
+
+def validar_password_nueva(nueva: str, confirmar: str) -> str | None:
+    """
+    Reglas para una contraseña nueva. Devuelve un mensaje de error, o
+    None si es válida. Función pura: sin BD, para poder probarla sola.
+    """
+    if not nueva:
+        return "La nueva contraseña es obligatoria."
+    if len(nueva) < LONGITUD_MINIMA_PASSWORD:
+        return f"La nueva contraseña debe tener al menos {LONGITUD_MINIMA_PASSWORD} caracteres."
+    if nueva != confirmar:
+        return "La confirmación no coincide con la nueva contraseña."
+    return None
+
+
+def cambiar_password(usuario_id: int, actual: str, nueva: str, confirmar: str) -> None:
+    """
+    Cambia la contraseña de login del usuario indicado. Verifica la
+    contraseña actual antes de reemplazarla. Lanza ValueError con un
+    mensaje claro si algo no cuadra.
+    """
+    error = validar_password_nueva(nueva, confirmar)
+    if error:
+        raise ValueError(error)
+
+    conexion = obtener_conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT password_hash FROM usuarios WHERE id = %s AND activo = TRUE",
+            (usuario_id,),
+        )
+        fila = cursor.fetchone()
+        if not fila:
+            cursor.close()
+            raise ValueError("El usuario ya no existe o está inactivo.")
+        if not verificar_password(actual, fila["password_hash"]):
+            cursor.close()
+            raise ValueError("La contraseña actual es incorrecta.")
+        if verificar_password(nueva, fila["password_hash"]):
+            cursor.close()
+            raise ValueError("La nueva contraseña no puede ser igual a la actual.")
+
+        cursor.execute(
+            "UPDATE usuarios SET password_hash = %s WHERE id = %s",
+            (hash_password(nueva), usuario_id),
+        )
+        conexion.commit()
+        cursor.close()
+    finally:
+        conexion.close()
 
 
 def obtener_usuario_actual() -> Usuario | None:

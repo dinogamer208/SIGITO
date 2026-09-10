@@ -1,9 +1,10 @@
 """
 views/asignacion_view.py — Pantalla de asignaciones (préstamos y devoluciones).
 
-Ventana propia (ctk.CTkToplevel), misma lógica de clase que Dashboard:
-arma su layout con los colores de views/tema.py y los componentes
-compartidos de views/componentes.py (tarjetas KPI, badges, tabla).
+Frame embebido dentro del área de contenido del Dashboard (se muestra
+al navegar desde el sidebar, reemplazando la vista anterior): arma su
+layout con los colores de views/tema.py y los componentes compartidos
+de views/componentes.py (tarjetas KPI, badges, tabla).
 """
 
 import customtkinter as ctk
@@ -22,28 +23,20 @@ from views.componentes import (
 )
 
 
-class AsignacionView(ctk.CTkToplevel):
+class AsignacionView(ctk.CTkFrame):
 
     ANCHOS = (170, 80, 140, 140, 100)
     _COLORES_AVATAR = ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B",
                         "#EF4444", "#06B6D4", "#EC4899", "#6366F1"]
 
     def __init__(self, master, usuario=None):
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
 
         self.usuario = usuario
         self.c = colores_dashboard()
 
-        self.title("Asignaciones")
-        self.geometry("1000x640")
-        self.minsize(860, 520)
-        self.configure(fg_color=self.c["fondo"])
-
         self._construir_layout()
         self._cargar_asignaciones()
-
-        self.transient(master)
-        self.grab_set()
 
     # ------------------------------------------------------------
     def _construir_layout(self):

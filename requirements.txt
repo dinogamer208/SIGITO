@@ -6,5 +6,5 @@ Pillow
 python-barcode
 reportlab
 openpyxl
-# Agregar según se necesite:
-# cryptography   -> si se cifra la contraseña de correo (utils/seguridad.py)
+cryptography   # cifra la contraseña de aplicación SMTP (utils/seguridad.py)
+pytest         # pruebas de la lógica importante (carpeta tests/)

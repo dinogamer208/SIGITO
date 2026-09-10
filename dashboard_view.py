@@ -4,22 +4,17 @@ views/dashboard_view.py
 Pantalla principal del sistema SIGITO después del login.
 Muestra KPIs, gráficos de inventario y últimos movimientos.
 
-INTEGRACIÓN CON EL BACKEND (Persona 1 y 4):
-Los datos marcados con # TODO están hardcodeados por ahora.
-Cuando los demás módulos estén listos, reemplazar con:
-    - KPIs         → listar_articulos() agrupado por estado (Persona 1)
-    - Movimientos  → listar_historial_por_articulo() de utils/auditoria.py (Persona 1)
-    - Categorías   → listar_categorias() con conteo de artículos (Persona 1)
-    - Asignaciones → listar_asignaciones_activas() agrupado por mes (Persona 3)
+Todos los datos vienen de la BD:
+    - KPIs y donut  → reportes_controller.resumen_articulos_por_estado()
+    - Movimientos   → auditoria.listar_historial_reciente()
+    - Categorías    → reportes_controller.articulos_por_categoria()
+    - Asignaciones  → reportes_controller.asignaciones_por_mes()
 
-NOTA para main.py (Persona 1):
-    El punto de entrada del sistema es main.py.
-    El bloque if __name__ == '__main__' es solo para probar
-    la vista de forma aislada mientras se desarrolla.
+NOTA: el punto de entrada del sistema es main.py. El bloque
+if __name__ == '__main__' de abajo es solo para probar la vista aislada.
 """
 
 import tkinter as tk
-from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image
 from pathlib import Path
@@ -31,13 +26,16 @@ from controllers import auth_controller
 from utils import auditoria
 
 
-class Dashboard(ctk.CTk):
+class Dashboard(ctk.CTkToplevel):
 
-    def __init__(self, usuario=None, on_logout=None):
-        super().__init__()
+    def __init__(self, master, usuario=None, on_logout=None):
+        super().__init__(master)
 
         self.usuario = usuario
         self.on_logout = on_logout
+        self._vista_actual = "dashboard"
+        self._after_paneles = None   # id del after() que arma el grid 2x2
+        self.protocol("WM_DELETE_WINDOW", self._cerrar_aplicacion)
 
         # --------------------------------------------------
         # Ajustar ventana al tamaño real de la pantalla
@@ -87,11 +85,33 @@ class Dashboard(ctk.CTk):
         Vincula el dibujado del gráfico al evento Configure del canvas.
         Esto garantiza que el canvas ya tiene su tamaño real cuando se dibuja.
         Se redibuja también cuando el usuario cambia el tamaño de la ventana.
+
+        Durante el armado del layout, <Configure> se dispara varias veces
+        seguidas (el canvas va recibiendo tamaños intermedios). Antes eso
+        redibujaba el gráfico completo 3-5 veces. Ahora se hace debounce:
+        se agenda el dibujo con after() y cada nuevo Configure cancela el
+        anterior, así solo se dibuja una vez con el tamaño ya estable. Se
+        ignora además el Configure que no cambia el tamaño.
         """
-        def al_redimensionar(event):
+        estado: dict = {"after": None, "size": None}
+
+        def dibujar():
+            estado["after"] = None
+            if not canvas.winfo_exists():
+                return
             canvas.configure(bg=self.COLOR_CARD_INNER)
             canvas.delete("all")
             fn(canvas)
+
+        def al_redimensionar(event):
+            size = (event.width, event.height)
+            if size == estado["size"]:
+                return
+            estado["size"] = size
+            if estado["after"] is not None:
+                canvas.after_cancel(estado["after"])
+            estado["after"] = canvas.after(60, dibujar)
+
         canvas.bind("<Configure>", al_redimensionar)
 
     # ==========================================================
@@ -143,7 +163,7 @@ class Dashboard(ctk.CTk):
             border_color=self.COLOR_BORDER
         )
         self.content.pack(side="left", fill="both", expand=True, padx=(14, 0))
-        self.crear_header()
+        self._mostrar_vista(self._vista_actual)
 
     # ==========================================================
     # SIDEBAR
@@ -180,12 +200,22 @@ class Dashboard(ctk.CTk):
         self.boton_usuarios     = self.crear_boton_sidebar("usuarios.png",     "Usuarios")
         self.boton_config       = self.crear_boton_sidebar("configuracion.png","Configuración")
 
-        self.boton_dashboard.configure(fg_color=self.COLOR_PRIMARY)
-        self.boton_inventario.configure(command=self._abrir_inventario)
-        self.boton_asignaciones.configure(command=self._abrir_asignaciones)
-        self.boton_reportes.configure(command=self._abrir_reportes)
-        self.boton_usuarios.configure(command=self._abrir_usuarios)
-        self.boton_config.configure(command=self._abrir_config)
+        self._botones_nav = {
+            "dashboard":    self.boton_dashboard,
+            "inventario":   self.boton_inventario,
+            "asignaciones": self.boton_asignaciones,
+            "reportes":     self.boton_reportes,
+            "usuarios":     self.boton_usuarios,
+            "config":       self.boton_config,
+        }
+
+        self.boton_dashboard.configure(command=lambda: self._mostrar_vista("dashboard"))
+        self.boton_inventario.configure(command=lambda: self._mostrar_vista("inventario"))
+        self.boton_asignaciones.configure(command=lambda: self._mostrar_vista("asignaciones"))
+        self.boton_reportes.configure(command=lambda: self._mostrar_vista("reportes"))
+        self.boton_usuarios.configure(command=lambda: self._mostrar_vista("usuarios"))
+        self.boton_config.configure(command=lambda: self._mostrar_vista("config"))
+        self._resaltar_boton(self._vista_actual)
 
         ctk.CTkFrame(self.sidebar, fg_color="transparent").pack(expand=True, fill="both")
 
@@ -272,24 +302,41 @@ class Dashboard(ctk.CTk):
         self.main.destroy()
         self.crear_layout()
 
-    def _abrir_inventario(self):
-        from views.inventario_view import InventarioView
-        InventarioView(self)
+    def _resaltar_boton(self, nombre):
+        for clave, boton in self._botones_nav.items():
+            boton.configure(fg_color=self.COLOR_PRIMARY if clave == nombre else "transparent")
 
-    def _abrir_asignaciones(self):
-        from views.asignacion_view import AsignacionView
-        AsignacionView(self, usuario=self.usuario)
+    def _mostrar_vista(self, nombre):
+        self._vista_actual = nombre
+        self._resaltar_boton(nombre)
 
-    def _abrir_reportes(self):
-        from views.reportes_view import ReportesView
-        ReportesView(self)
+        # Si había un armado de paneles del dashboard pendiente y se
+        # cambia de vista antes de que corra, cancelarlo (dibujaría sobre
+        # un contenedor ya destruido).
+        if self._after_paneles is not None:
+            self.after_cancel(self._after_paneles)
+            self._after_paneles = None
 
-    def _abrir_usuarios(self):
-        from views.usuarios_view import UsuariosView
-        UsuariosView(self)
+        for hijo in self.content.winfo_children():
+            hijo.destroy()
 
-    def _abrir_config(self):
-        messagebox.showinfo("Configuración", "Sección de configuración próximamente.")
+        if nombre == "dashboard":
+            self.crear_header(self.content)
+        elif nombre == "inventario":
+            from views.inventario_view import InventarioView
+            InventarioView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "asignaciones":
+            from views.asignacion_view import AsignacionView
+            AsignacionView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "reportes":
+            from views.reportes_view import ReportesView
+            ReportesView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "usuarios":
+            from views.usuarios_view import UsuariosView
+            UsuariosView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "config":
+            from views.config_view import ConfigView
+            ConfigView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
 
     def _cerrar_sesion(self):
         auth_controller.cerrar_sesion()
@@ -297,6 +344,9 @@ class Dashboard(ctk.CTk):
         self.destroy()
         if callback:
             callback()
+
+    def _cerrar_aplicacion(self):
+        self.master.destroy()
 
     # ==========================================================
     # BOTÓN SIDEBAR
@@ -324,9 +374,9 @@ class Dashboard(ctk.CTk):
     # HEADER
     # ==========================================================
 
-    def crear_header(self):
+    def crear_header(self, padre):
 
-        header = ctk.CTkFrame(self.content, height=80, fg_color="transparent")
+        header = ctk.CTkFrame(padre, height=80, fg_color="transparent")
         header.pack(fill="x", padx=24, pady=(20, 14))
         header.pack_propagate(False)
 
@@ -369,18 +419,23 @@ class Dashboard(ctk.CTk):
             font=("Segoe UI", 12, "bold")
         ).pack(pady=(8, 0))
 
-        self.crear_kpis()
+        self.crear_kpis(padre)
 
     # ==========================================================
     # KPIs
     # ==========================================================
 
-    def crear_kpis(self):
+    def crear_kpis(self, padre):
 
-        contenedor = ctk.CTkFrame(self.content, fg_color="transparent")
+        contenedor = ctk.CTkFrame(padre, fg_color="transparent")
         contenedor.pack(fill="x", padx=24)
 
-        resumen = {fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()}
+        # Se consulta una sola vez y se reutiliza en el donut (evita
+        # repetir la misma consulta cuando <Configure> dispara el redibujo).
+        self._resumen_estados = {
+            fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()
+        }
+        resumen = self._resumen_estados
         disponibles = resumen.get("disponible", 0)
         prestados = resumen.get("prestado", 0)
         de_baja = resumen.get("de_baja", 0)
@@ -415,15 +470,30 @@ class Dashboard(ctk.CTk):
                 text_color=self.COLOR_SUBTEXT
             ).pack(pady=(0, 16))
 
-        self.crear_dashboard()
+        # El grid 2x2 de paneles (gráficos + movimientos) es la parte más
+        # cara del armado (~600 ms de widgets + 3 consultas). Se difiere un
+        # tick para que la ventana ya aparezca con sidebar, header y KPIs;
+        # los paneles se rellenan enseguida sin bloquear el primer pintado.
+        self._after_paneles = self.after(10, self._armar_paneles, padre)
+
+    def _armar_paneles(self, padre):
+        self._after_paneles = None
+        if self._vista_actual != "dashboard" or not padre.winfo_exists():
+            return
+        self.crear_dashboard(padre)
 
     # ==========================================================
     # DASHBOARD (grid 2x2)
     # ==========================================================
 
-    def crear_dashboard(self):
+    def crear_dashboard(self, padre):
 
-        dashboard = ctk.CTkFrame(self.content, fg_color="transparent")
+        # Se consultan una sola vez y se reutilizan en cada redibujo del
+        # canvas (evita repetir la consulta cada vez que <Configure> dispara).
+        self._datos_categoria    = reportes_controller.articulos_por_categoria()
+        self._datos_asignaciones = reportes_controller.asignaciones_por_mes(meses=6)
+
+        dashboard = ctk.CTkFrame(padre, fg_color="transparent")
         dashboard.pack(fill="both", expand=True, padx=24, pady=(14, 20))
 
         dashboard.grid_rowconfigure(0, weight=1, uniform="fila")
@@ -485,7 +555,7 @@ class Dashboard(ctk.CTk):
 
     def _dibujar_barras(self, canvas):
 
-        filas = reportes_controller.articulos_por_categoria()
+        filas = self._datos_categoria
         categorias = [fila["categoria"] for fila in filas]
         cantidades  = [fila["cantidad"] for fila in filas]
 
@@ -535,7 +605,7 @@ class Dashboard(ctk.CTk):
         _MESES_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
                      "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
-        filas = reportes_controller.asignaciones_por_mes(meses=6)
+        filas = self._datos_asignaciones
         meses     = [_MESES_ES[int(fila["mes"].split("-")[1]) - 1] for fila in filas]
         prestamos = [fila["cantidad"] for fila in filas]
 
@@ -589,7 +659,7 @@ class Dashboard(ctk.CTk):
 
     def _dibujar_donut(self, canvas):
 
-        resumen = {fila["estado"]: fila["cantidad"] for fila in reportes_controller.resumen_articulos_por_estado()}
+        resumen = self._resumen_estados
         _ETIQUETAS = {"disponible": "Disponibles", "prestado": "Prestados", "de_baja": "De baja"}
         _COLORES_ESTADO = {
             "disponible": COLORES["disponible_texto"],
@@ -763,7 +833,13 @@ class Dashboard(ctk.CTk):
     # CARGAR IMAGEN
     # ==========================================================
 
+    _CACHE_IMAGENES = {}
+
     def cargar_imagen(self, nombre, tamaño):
+
+        clave = (nombre, tamaño)
+        if clave in Dashboard._CACHE_IMAGENES:
+            return Dashboard._CACHE_IMAGENES[clave]
 
         ruta = self.ASSETS / nombre
 
@@ -773,11 +849,13 @@ class Dashboard(ctk.CTk):
         imagen = Image.open(ruta)
         imagen.thumbnail((tamaño, tamaño), Image.LANCZOS)
 
-        return ctk.CTkImage(
+        ctk_imagen = ctk.CTkImage(
             light_image=imagen,
             dark_image=imagen,
             size=imagen.size
         )
+        Dashboard._CACHE_IMAGENES[clave] = ctk_imagen
+        return ctk_imagen
 
 
 # ==========================================================
@@ -786,5 +864,8 @@ class Dashboard(ctk.CTk):
 
 if __name__ == "__main__":
     aplicar_tema()
-    app = Dashboard()
-    app.mainloop()
+    _root = ctk.CTk()
+    _root.withdraw()
+    app = Dashboard(_root)
+    app.protocol("WM_DELETE_WINDOW", _root.destroy)
+    _root.mainloop()
