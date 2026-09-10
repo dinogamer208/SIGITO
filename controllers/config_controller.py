@@ -18,7 +18,7 @@ import ssl
 from email.message import EmailMessage
 
 from config import SMTP_HOST, SMTP_PORT
-from db.conexion import obtener_conexion
+from db.conexion import transaccion
 from utils.seguridad import cifrar, descifrar
 
 _CLAVES = ("correo_remitente", "smtp_app_password", "correo_copia_admin")
@@ -36,12 +36,9 @@ def obtener_config() -> dict:
     contraseña SMTP se devuelve YA descifrada y lista para usar.
     Las claves que aún no existan en la BD vuelven como "".
     """
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
-    cursor.execute("SELECT clave, valor FROM configuracion")
-    filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
-    cursor.close()
-    conexion.close()
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute("SELECT clave, valor FROM configuracion")
+        filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
 
     datos = {clave: (filas.get(clave) or "") for clave in _CLAVES}
     datos["smtp_app_password"] = descifrar(datos["smtp_app_password"])
@@ -72,16 +69,12 @@ def guardar_config(correo_remitente: str, correo_copia_admin: str,
     if smtp_app_password is not None:
         cambios["smtp_app_password"] = cifrar(smtp_app_password.strip())
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.executemany(
-        "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
-        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
-        list(cambios.items()),
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.executemany(
+            "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+            list(cambios.items()),
+        )
 
 
 def enviar_correo_prueba(destino: str | None = None) -> str:

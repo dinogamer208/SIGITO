@@ -5,7 +5,7 @@ catálogo de profesores autorizados.
 Responsable: Persona 2.
 """
 
-from db.conexion import obtener_conexion
+from db.conexion import transaccion
 from models.usuario import Usuario
 from utils.seguridad import hash_password, verificar_password, necesita_rehash
 
@@ -15,45 +15,40 @@ LONGITUD_MINIMA_PASSWORD = 6
 
 
 def iniciar_sesion(usuario: str, password: str) -> Usuario | None:
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
+    # Solo la lectura va dentro de la transacción: el bcrypt (~170 ms) no
+    # debe hacerse con una conexión del pool retenida.
+    with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute(
             "SELECT * FROM usuarios WHERE usuario = %s AND activo = TRUE",
             (usuario,)
         )
         fila = cursor.fetchone()
-        cursor.close()
 
-        if not fila:
-            return None
-        if not verificar_password(password, fila["password_hash"]):
-            return None
+    if not fila:
+        return None
+    if not verificar_password(password, fila["password_hash"]):
+        return None
 
-        if necesita_rehash(fila["password_hash"]):
-            _regenerar_hash(conexion, fila["id"], password)
+    if necesita_rehash(fila["password_hash"]):
+        _regenerar_hash(fila["id"], password)
 
-        global _usuario_actual
-        _usuario_actual = Usuario.desde_fila(fila)
-        return _usuario_actual
-    finally:
-        conexion.close()
+    global _usuario_actual
+    _usuario_actual = Usuario.desde_fila(fila)
+    return _usuario_actual
 
 
-def _regenerar_hash(conexion, usuario_id: int, password: str) -> None:
+def _regenerar_hash(usuario_id: int, password: str) -> None:
     """
     Reescribe el password_hash del usuario con el costo bcrypt actual.
     El login ya se validó; si el UPDATE falla no se interrumpe la sesión,
     solo se reintentará el rehash en el próximo login.
     """
     try:
-        cursor = conexion.cursor()
-        cursor.execute(
-            "UPDATE usuarios SET password_hash = %s WHERE id = %s",
-            (hash_password(password), usuario_id),
-        )
-        conexion.commit()
-        cursor.close()
+        with transaccion() as (cursor, _con):
+            cursor.execute(
+                "UPDATE usuarios SET password_hash = %s WHERE id = %s",
+                (hash_password(password), usuario_id),
+            )
     except Exception:
         pass
 
@@ -87,32 +82,23 @@ def cambiar_password(usuario_id: int, actual: str, nueva: str, confirmar: str) -
     if error:
         raise ValueError(error)
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
+    with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute(
             "SELECT password_hash FROM usuarios WHERE id = %s AND activo = TRUE",
             (usuario_id,),
         )
         fila = cursor.fetchone()
         if not fila:
-            cursor.close()
             raise ValueError("El usuario ya no existe o está inactivo.")
         if not verificar_password(actual, fila["password_hash"]):
-            cursor.close()
             raise ValueError("La contraseña actual es incorrecta.")
         if verificar_password(nueva, fila["password_hash"]):
-            cursor.close()
             raise ValueError("La nueva contraseña no puede ser igual a la actual.")
 
         cursor.execute(
             "UPDATE usuarios SET password_hash = %s WHERE id = %s",
             (hash_password(nueva), usuario_id),
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def obtener_usuario_actual() -> Usuario | None:
@@ -125,43 +111,31 @@ def obtener_usuario_actual() -> Usuario | None:
 # ---------------------------------------------------------
 
 def listar_profesores(solo_activos: bool = True) -> list[dict]:
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
     query = "SELECT * FROM profesores_autorizados"
     if solo_activos:
         query += " WHERE activo = TRUE"
     query += " ORDER BY nombre_completo"
-    cursor.execute(query)
-    filas = cursor.fetchall()
-    cursor.close()
-    conexion.close()
-    return filas
+
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute(query)
+        return cursor.fetchall()
 
 
 def agregar_profesor(nombre_completo: str, correo: str, telefono: str = None) -> int:
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "INSERT INTO profesores_autorizados (nombre_completo, correo, telefono) "
-        "VALUES (%s, %s, %s)",
-        (nombre_completo, correo, telefono)
-    )
-    conexion.commit()
-    nuevo_id = cursor.lastrowid
-    cursor.close()
-    conexion.close()
-    return nuevo_id
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "INSERT INTO profesores_autorizados (nombre_completo, correo, telefono) "
+            "VALUES (%s, %s, %s)",
+            (nombre_completo, correo, telefono)
+        )
+        return cursor.lastrowid
 
 
 def editar_profesor(id_profesor: int, nombre_completo: str, correo: str,
                      telefono: str = None, activo: bool = True) -> None:
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE profesores_autorizados SET nombre_completo = %s, correo = %s, "
-        "telefono = %s, activo = %s WHERE id = %s",
-        (nombre_completo, correo, telefono, activo, id_profesor)
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "UPDATE profesores_autorizados SET nombre_completo = %s, correo = %s, "
+            "telefono = %s, activo = %s WHERE id = %s",
+            (nombre_completo, correo, telefono, activo, id_profesor)
+        )

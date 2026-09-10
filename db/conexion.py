@@ -16,6 +16,7 @@ Esqueleto:
 """
 
 import threading
+from contextlib import contextmanager
 
 import mysql.connector
 from mysql.connector import Error, pooling
@@ -58,6 +59,39 @@ def obtener_conexion():
     except Error as e:
         print(f"[ERROR] No se pudo conectar a MySQL: {e}")
         raise
+
+@contextmanager
+def transaccion(dictionary=False):
+    """
+    Context manager para una operación de base de datos. Entrega
+    ``(cursor, conexion)``, hace ``commit()`` si el bloque termina bien,
+    ``rollback()`` si lanza una excepción, y SIEMPRE cierra el cursor y
+    devuelve la conexión al pool.
+
+    Antes cada función hacía ``cursor.close(); conexion.close()`` como
+    sentencias sueltas: si ``cursor.execute`` fallaba, la conexión nunca
+    volvía al pool y, con ``pool_size=3``, tres errores dejaban la app
+    colgada para siempre en ``get_connection()``.
+
+        with transaccion(dictionary=True) as (cur, con):
+            cur.execute("SELECT ...", params)
+            filas = cur.fetchall()
+
+    Las funciones de solo lectura también pueden usarlo: el ``commit()``
+    sobre un SELECT no tiene efecto.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=dictionary)
+    try:
+        yield cursor, conexion
+        conexion.commit()
+    except Exception:
+        conexion.rollback()
+        raise
+    finally:
+        cursor.close()
+        conexion.close()
+
 
 def hay_conexion_servidor(timeout=2):
     """

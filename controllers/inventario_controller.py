@@ -14,11 +14,9 @@ Qué debe hacer este archivo:
 Recordatorio importante (aprendido en Café Nova): los ids que vienen
 de widgets de Tkinter (ej. Treeview iid) llegan como string — convertir
 siempre a int antes de usarlos en queries con FOREIGN KEY.
-
-Esqueleto:
 """
 
-from db.conexion import obtener_conexion
+from db.conexion import transaccion
 from models.articulo import Articulo
 from utils.auditoria import registrar_movimiento
 
@@ -28,18 +26,14 @@ def generar_codigo_inventario(prefijo):
     Busca el último código con ese prefijo y genera el siguiente.
     prefijo ejemplo: "TEC", "OFI"
     """
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-
-    cursor.execute(
-        "SELECT codigo_inventario FROM articulos "
-        "WHERE codigo_inventario LIKE %s "
-        "ORDER BY id DESC LIMIT 1",
-        (f"{prefijo}-%",)
-    )
-    resultado = cursor.fetchone()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "SELECT codigo_inventario FROM articulos "
+            "WHERE codigo_inventario LIKE %s "
+            "ORDER BY id DESC LIMIT 1",
+            (f"{prefijo}-%",)
+        )
+        resultado = cursor.fetchone()
 
     if resultado:
         ultimo_numero = int(resultado[0].split("-")[1])
@@ -47,7 +41,8 @@ def generar_codigo_inventario(prefijo):
     else:
         siguiente = 1
 
-    return f"{prefijo}-{siguiente:04d}" # TEC-0001, TEC-0002, etc.
+    return f"{prefijo}-{siguiente:04d}"  # TEC-0001, TEC-0002, etc.
+
 
 # -----------------------------------------------------
 # Agregar articulo nuevo
@@ -58,30 +53,25 @@ def agregar_articulo(datos):
     nombre, categoria_id, marca, modelo, serie, foto_path,
     estado_fisico, fecha_adquisicion, ubicacion_actual, prefijo_codigo
     """
-
     codigo_inventario = generar_codigo_inventario(datos["prefijo_codigo"])
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
+        cursor.execute("""
+            INSERT INTO articulos
+            (codigo_inventario, nombre, categoria_id, marca, modelo, serie,
+            foto_path, estado_fisico, estado_disponibilidad, fecha_adquisicion,
+            ubicacion_actual)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'disponible', %s, %s)
+        """, (
+            codigo_inventario, datos["nombre"], datos["categoria_id"],
+            datos.get("marca"), datos.get("modelo"), datos.get("serie"),
+            datos.get("foto_path"), datos.get("estado_fisico", "bueno"),
+            datos.get("fecha_adquisicion"), datos.get("ubicacion_actual")
+        ))
+        nuevo_id = cursor.lastrowid
 
-    cursor.execute("""
-        INSERT INTO articulos
-        (codigo_inventario, nombre, categoria_id, marca, modelo, serie,
-        foto_path, estado_fisico, estado_disponibilidad, fecha_adquisicion,
-        ubicacion_actual)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'disponible', %s, %s)
-    """, (
-        codigo_inventario, datos["nombre"], datos["categoria_id"],
-        datos.get("marca"), datos.get("modelo"), datos.get("serie"),
-        datos.get("foto_path"), datos.get("estado_fisico","bueno"),
-        datos.get("fecha_adquisicion"), datos.get("ubicacion_actual")
-    ))
-
-    conexion.commit()
-    nuevo_id = cursor.lastrowid
-    cursor.close()
-    conexion.close()
-    # --- Registro de auditoría ---
+    # Auditoría: transacción aparte, a propósito (log desacoplado). Se
+    # hace fuera del `with` para no tener dos conexiones del pool a la vez.
     registrar_movimiento(
         articulo_id=nuevo_id,
         tipo_movimiento="alta",
@@ -90,89 +80,72 @@ def agregar_articulo(datos):
 
     return codigo_inventario, nuevo_id
 
+
 # ---------------------------------------------------------
 # Editar artículo existente
 # ---------------------------------------------------------
 def editar_articulo(id_articulo, datos):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
+        cursor.execute("""
+            UPDATE articulos SET
+                nombre = %s, categoria_id = %s, marca = %s, modelo = %s,
+                serie = %s, foto_path = %s, estado_fisico = %s,
+                fecha_adquisicion = %s, ubicacion_actual = %s
+            WHERE id = %s
+        """, (
+            datos["nombre"], datos["categoria_id"], datos.get("marca"),
+            datos.get("modelo"), datos.get("serie"), datos.get("foto_path"),
+            datos.get("estado_fisico"), datos.get("fecha_adquisicion"),
+            datos.get("ubicacion_actual"), id_articulo
+        ))
 
-    cursor.execute("""
-        UPDATE articulos SET
-            nombre = %s, categoria_id = %s, marca = %s, modelo = %s,
-            serie = %s, foto_path = %s, estado_fisico = %s,
-            fecha_adquisicion = %s, ubicacion_actual = %s
-        WHERE id = %s
-    """, (
-        datos["nombre"], datos["categoria_id"], datos.get("marca"),
-        datos.get("modelo"), datos.get("serie"), datos.get("foto_path"),
-        datos.get("estado_fisico"), datos.get("fecha_adquisicion"),
-        datos.get("ubicacion_actual"), id_articulo
-    )) 
-
-    conexion.commit()
-    cursor.close()
-    conexion.close()
 
 # ---------------------------------------------------------
 # Dar de baja un artículo
 # ---------------------------------------------------------
 def dar_de_baja(id_articulo):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE articulos SET estado_disponibilidad = 'de_baja' WHERE id = %s",
-        (id_articulo,)
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
-    # --- Registro de auditoría ---
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "UPDATE articulos SET estado_disponibilidad = 'de_baja' WHERE id = %s",
+            (id_articulo,)
+        )
+
     registrar_movimiento(
         articulo_id=id_articulo,
         tipo_movimiento="baja",
         detalle=f"Artículo id={id_articulo} dado de baja"
     )
 
+
 # ---------------------------------------------------------
 # Actualizar estado de disponibilidad
 # Usado por asignacion_controller.py al prestar/devolver un artículo.
 # ---------------------------------------------------------
 def actualizar_estado_articulo(id_articulo, nuevo_estado):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE articulos SET estado_disponibilidad = %s WHERE id = %s",
-        (nuevo_estado, id_articulo)
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "UPDATE articulos SET estado_disponibilidad = %s WHERE id = %s",
+            (nuevo_estado, id_articulo)
+        )
+
 
 # ---------------------------------------------------------
 # Buscar artículo por código (usado por el escáner)
 # ---------------------------------------------------------
 def buscar_articulo_por_codigo(codigo):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT * FROM articulos WHERE codigo_inventario = %s", (codigo,)
-    )
-    fila = cursor.fetchone()
-    cursor.close()
-    conexion.close()
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute(
+            "SELECT * FROM articulos WHERE codigo_inventario = %s", (codigo,)
+        )
+        fila = cursor.fetchone()
 
-    if fila:
-        return Articulo(**fila)
-    return None
+    return Articulo(**fila) if fila else None
+
 
 # ---------------------------------------------------------
 # Listar artículos (con filtros opcionales)
 # ---------------------------------------------------------
 def listar_articulos(categoria_id=None, estado_disponibilidad=None):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
-
     query = "SELECT * FROM articulos WHERE 1=1"
     params = []
 
@@ -184,12 +157,12 @@ def listar_articulos(categoria_id=None, estado_disponibilidad=None):
         query += " AND estado_disponibilidad = %s"
         params.append(estado_disponibilidad)
 
-    cursor.execute(query, tuple(params))
-    filas = cursor.fetchall()
-    cursor.close()
-    conexion.close()
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute(query, tuple(params))
+        filas = cursor.fetchall()
 
     return [Articulo(**fila) for fila in filas]
+
 
 def generar_etiqueta(codigo_inventario, nombre_articulo, carpeta_salida="assets/etiquetas"):
     """
@@ -243,44 +216,27 @@ def generar_etiqueta(codigo_inventario, nombre_articulo, carpeta_salida="assets/
 
     return ruta_final
 
+
 # ---------------------------------------------------------
 # CRUD de Categorías
 # ---------------------------------------------------------
 
 def agregar_categoria(nombre, descripcion=None):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "INSERT INTO categorias (nombre, descripcion) VALUES (%s, %s)",
-        (nombre, descripcion)
-    )
-    conexion.commit()
-    nuevo_id = cursor.lastrowid
-    cursor.close()
-    conexion.close()
-    return nuevo_id
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "INSERT INTO categorias (nombre, descripcion) VALUES (%s, %s)",
+            (nombre, descripcion)
+        )
+        return cursor.lastrowid
+
 
 def editar_categoria(id_categoria, nombre, descripcion=None):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE categorias SET nombre = %s, descripcion = %s WHERE id = %s",
-        (nombre, descripcion, id_categoria)
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "UPDATE categorias SET nombre = %s, descripcion = %s WHERE id = %s",
+            (nombre, descripcion, id_categoria)
+        )
 
-def editar_categoria(id_categoria, nombre, descripcion=None):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE categorias SET nombre = %s, descripcion = %s WHERE id = %s",
-        (nombre, descripcion, id_categoria)
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
 
 def eliminar_categoria(id_categoria):
     """
@@ -288,32 +244,22 @@ def eliminar_categoria(id_categoria):
     categoria, para no dejar articulos huérfanos o romper la
     llave foránea.
     """
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-
-    cursor.execute(
-        "SELECT COUNT(*) FROM articulos WHERE categoria_id = %s",
-        (id_categoria,)
-    )
-    cantidad = cursor.fetchone()[0]
-
-    if cantidad > 0:
-        cursor.close()
-        conexion.close()
-        raise ValueError(
-            f"No se puede eliminar: hay {cantidad} artículo(s) usando esta categoría."
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "SELECT COUNT(*) FROM articulos WHERE categoria_id = %s",
+            (id_categoria,)
         )
-    
-    cursor.execute("DELETE FROM categorias WHERE id = %s", (id_categoria,))
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+        cantidad = cursor.fetchone()[0]
+
+        if cantidad > 0:
+            raise ValueError(
+                f"No se puede eliminar: hay {cantidad} artículo(s) usando esta categoría."
+            )
+
+        cursor.execute("DELETE FROM categorias WHERE id = %s", (id_categoria,))
+
 
 def listar_categorias():
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM categorias ORDER BY nombre")
-    filas = cursor.fetchall()
-    cursor.close()
-    conexion.close()
-    return filas
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute("SELECT * FROM categorias ORDER BY nombre")
+        return cursor.fetchall()
