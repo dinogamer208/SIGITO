@@ -19,7 +19,6 @@ NOTA para main.py (Persona 1):
 """
 
 import tkinter as tk
-from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image
 from pathlib import Path
@@ -211,6 +210,7 @@ class Dashboard(ctk.CTkToplevel):
             "asignaciones": self.boton_asignaciones,
             "reportes":     self.boton_reportes,
             "usuarios":     self.boton_usuarios,
+            "config":       self.boton_config,
         }
 
         self.boton_dashboard.configure(command=lambda: self._mostrar_vista("dashboard"))
@@ -218,7 +218,7 @@ class Dashboard(ctk.CTkToplevel):
         self.boton_asignaciones.configure(command=lambda: self._mostrar_vista("asignaciones"))
         self.boton_reportes.configure(command=lambda: self._mostrar_vista("reportes"))
         self.boton_usuarios.configure(command=lambda: self._mostrar_vista("usuarios"))
-        self.boton_config.configure(command=self._abrir_config)
+        self.boton_config.configure(command=lambda: self._mostrar_vista("config"))
         self._resaltar_boton(self._vista_actual)
 
         ctk.CTkFrame(self.sidebar, fg_color="transparent").pack(expand=True, fill="both")
@@ -338,9 +338,9 @@ class Dashboard(ctk.CTkToplevel):
         elif nombre == "usuarios":
             from views.usuarios_view import UsuariosView
             UsuariosView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
-
-    def _abrir_config(self):
-        messagebox.showinfo("Configuración", "Sección de configuración próximamente.")
+        elif nombre == "config":
+            from views.config_view import ConfigView
+            ConfigView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
 
     def _cerrar_sesion(self):
         auth_controller.cerrar_sesion()

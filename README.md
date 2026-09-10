@@ -12,9 +12,10 @@ servidor en red, modo offline y escáneres de código de barras.
 SIGITO/
 │
 ├── main.py                        # Punto de entrada, arranca la app
-├── config.py                      # PLANTILLA de conexión (sin credenciales reales)
+├── config.py                      # Lee la conexión del .env (sin credenciales en el código)
+├── .env.example                     # Plantilla de credenciales: cp .env.example .env
 ├── requirements.txt                 # Dependencias del proyecto
-├── .gitignore                       # Archivos que NO se suben al repo
+├── .gitignore                       # Archivos que NO se suben al repo (incluye .env)
 │
 ├── db/
 │   ├── conexion.py                 # (Persona 1) Conexión MySQL + modo offline/sincronización
@@ -70,8 +71,22 @@ SIGITO/
 ### Pendiente para "producción" (fuera del alcance de esta pasada)
 - Modo offline con SQLite + sincronización al reconectar.
 - Monitor de correos cada 5 min (alumno + profesor) y notificación nativa de Windows ante atrasos.
-- Cifrado (Fernet) de la contraseña de aplicación SMTP.
+  El monitor debe leer el remitente/contraseña con `config_controller.obtener_config()`.
 - Gestión completa de mantenimientos (el modelo `Mantenimiento` existe pero no tiene controller/vista propios).
+
+### Pantalla de Configuración (nueva)
+El botón **Configuración** del sidebar abre `views/config_view.py` con tres apartados:
+- **Correo de avisos de atraso** — remitente Gmail + contraseña de aplicación + correo de
+  copia al admin. Se guarda en la tabla `configuracion` vía `controllers/config_controller.py`;
+  la contraseña de aplicación va **cifrada con Fernet** (`utils/seguridad.py`), con la llave en
+  `~/.sigito/secret.key` (fuera del repo, se genera sola). Incluye "Enviar correo de prueba".
+- **Contraseña de acceso** — `auth_controller.cambiar_password()` (verifica la actual).
+- **Diagnóstico del sistema** — `utils/diagnostico.ejecutar_diagnostico()`: BD, hash, cifrado y
+  las consultas críticas.
+
+Requiere aplicar la migración `db/migraciones/002_configuracion.sql` (o correr el `schema.sql`
+actualizado en una base nueva). Dependencias nuevas: `cryptography` y `pytest`.
+Pruebas: `pytest` desde la raíz (ver `tests/README.md`).
 
 ## Cómo empezar (para cada integrante del equipo)
 
@@ -99,22 +114,28 @@ source RUTA\SIGITO\db\schema.sql
 Esto crea la base `sigito_db` y todas las tablas.
 
 ### 5. Crear tu configuración local (IMPORTANTE)
-El archivo `config.py` del repositorio es solo una plantilla sin
-contraseña real. Cada persona debe:
+`config.py` no contiene ninguna credencial real: lee todo de un archivo
+`.env` en la raíz del proyecto, que está en `.gitignore` y nunca se
+sube. Cada persona debe:
 
-1. Copiar `config.py` como `config_local.py` (ya está en `.gitignore`,
-   nunca se sube al repo).
-2. Poner ahí su propia contraseña de MySQL local.
-3. Cambiar el import en los archivos que uses, de:
-   ```python
-   from config import DB_CONFIG
+1. Copiar la plantilla:
+   ```bash
+   cp .env.example .env
    ```
-   a:
-   ```python
-   from config_local import DB_CONFIG
+2. Editar `.env` con los datos de tu MySQL local (como mínimo tu
+   contraseña en `SIGITO_DB_PASSWORD`):
    ```
-   (Cuando el servidor real esté listo, `config_local.py` solo cambia
-   el host de "localhost" a la IP del servidor, ej. 192.168.10.10).
+   SIGITO_DB_HOST=localhost
+   SIGITO_DB_PORT=3306
+   SIGITO_DB_USER=root
+   SIGITO_DB_PASSWORD=tu-password-local
+   SIGITO_DB_NAME=sigito_db
+   ```
+
+No hay que tocar `config.py` ni cambiar imports: `python-dotenv` carga
+el `.env` solo. Cuando el servidor real esté listo, cada quien solo
+cambia `SIGITO_DB_HOST` en su `.env` a la IP del servidor
+(ej. 192.168.10.10).
 
 ### 6. Trabajar en tu propia rama, nunca directo en main
 ```bash

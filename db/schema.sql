@@ -116,6 +116,23 @@ CREATE TABLE mantenimientos (
     FOREIGN KEY (articulo_id) REFERENCES articulos(id)
 );
 
+-- ---------------------------------------------------------
+-- Tabla: configuracion (ajustes editables desde la app)
+-- Ver db/migraciones/002_configuracion.sql. La contraseña de
+-- aplicación SMTP se guarda cifrada con Fernet (utils/seguridad.py).
+-- ---------------------------------------------------------
+CREATE TABLE configuracion (
+    clave          VARCHAR(60) PRIMARY KEY,
+    valor          TEXT,
+    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                   ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT INTO configuracion (clave, valor) VALUES
+    ('correo_remitente',   ''),
+    ('smtp_app_password',   ''),
+    ('correo_copia_admin',  '');
+
 -- =========================================================
 -- NOTA: Ya no se crea un usuario de MySQL separado (sigito_app)
 -- porque por ahora el sistema es 100% local, cada quien usa su
