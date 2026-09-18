@@ -22,6 +22,7 @@ class Asignacion:
     anio: str
     telefono: str
     correo: str
+    foto_alumno: Optional[str]
     profesor_autoriza_id: int
     hora_salida: datetime
     hora_estimada_devolucion: datetime
@@ -42,6 +43,7 @@ class Asignacion:
             anio=fila["anio"],
             telefono=fila["telefono"],
             correo=fila["correo"],
+            foto_alumno=fila.get("foto_alumno"),
             profesor_autoriza_id=fila["profesor_autoriza_id"],
             hora_salida=fila["hora_salida"],
             hora_estimada_devolucion=fila["hora_estimada_devolucion"],

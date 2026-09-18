@@ -271,17 +271,6 @@ def editar_categoria(id_categoria, nombre, descripcion=None):
     cursor.close()
     conexion.close()
 
-def editar_categoria(id_categoria, nombre, descripcion=None):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE categorias SET nombre = %s, descripcion = %s WHERE id = %s",
-        (nombre, descripcion, id_categoria)
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
-
 def eliminar_categoria(id_categoria):
     """
     Antes de eliminar, verificar que no haya articulos usando esta

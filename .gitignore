@@ -16,6 +16,7 @@ config_local.py
 # Archivos generados (no deben ir al repo, cada quien los genera localmente)
 assets/etiquetas/*.png
 assets/fotos_articulos/*
+assets/fotos_prestamos/*
 
 # Sistema operativo
 .DS_Store

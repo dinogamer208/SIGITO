@@ -12,7 +12,129 @@ Todas las vistas internas importan de aquí en vez de reconstruir
 tarjetas/badges a mano, igual que todas importan colores desde tema.py.
 """
 
+import os
+import uuid
+
 import customtkinter as ctk
+from tkinter import messagebox
+from PIL import Image
+
+
+def listar_camaras_disponibles(max_indices=5):
+    """
+    Prueba los índices 0..max_indices-1 con DirectShow y devuelve los que
+    sí abren (OpenCV no expone nombres de dispositivo por índice, así que
+    se listan como "Cámara 0", "Cámara 1", etc.).
+    """
+    import cv2  # import local: pesado, solo se necesita al usar la cámara
+
+    disponibles = []
+    for indice in range(max_indices):
+        captura = cv2.VideoCapture(indice, cv2.CAP_DSHOW)
+        if captura.isOpened():
+            disponibles.append(indice)
+        captura.release()
+    return disponibles
+
+
+def abrir_ventana_camara(padre, colores, titulo, carpeta_destino, on_capturada, estilo_boton_primario):
+    """
+    Ventana modal para tomar una foto con la cámara, con selector de
+    cámara cuando hay más de una conectada (ej. webcam integrada +
+    cámara USB). Usada por Asignaciones (foto del alumno) e Inventario
+    (foto del artículo) — ver views/asignacion_view.py y
+    views/inventario_view.py.
+
+    `on_capturada(ruta)` se llama con la ruta del PNG guardado en
+    `carpeta_destino` cuando el usuario presiona "Capturar".
+    """
+    import cv2  # import local: pesado, solo se necesita al tomar la foto
+
+    camaras = listar_camaras_disponibles()
+    if not camaras:
+        messagebox.showerror("Error", "No se detectó ninguna cámara conectada.")
+        return
+
+    estado = {"indice": camaras[0], "captura": None, "activo": True}
+
+    def _abrir_indice(indice):
+        if estado["captura"] is not None:
+            estado["captura"].release()
+        estado["indice"] = indice
+        estado["captura"] = cv2.VideoCapture(indice, cv2.CAP_DSHOW)
+
+    _abrir_indice(camaras[0])
+
+    camara_ventana = ctk.CTkToplevel(padre)
+    camara_ventana.title(titulo)
+    camara_ventana.configure(fg_color=colores["fondo"])
+    camara_ventana.transient(padre)
+    camara_ventana.grab_set()
+    camara_ventana.resizable(False, False)
+
+    if len(camaras) > 1:
+        fila_selector = ctk.CTkFrame(camara_ventana, fg_color="transparent")
+        fila_selector.pack(fill="x", padx=16, pady=(16, 0))
+        ctk.CTkLabel(fila_selector, text="Cámara:", text_color=colores["subtext"],
+                     font=("Segoe UI", 11)).pack(side="left", padx=(0, 8))
+
+        etiquetas = {f"Cámara {i}": i for i in camaras}
+
+        def _cambiar_camara(etiqueta):
+            _abrir_indice(etiquetas[etiqueta])
+
+        ctk.CTkOptionMenu(
+            fila_selector, values=list(etiquetas.keys()),
+            command=_cambiar_camara, width=140,
+        ).pack(side="left")
+
+    etiqueta_video = ctk.CTkLabel(
+        camara_ventana, text="Abriendo cámara...", width=480, height=360,
+        fg_color=colores["card_inner"],
+    )
+    etiqueta_video.pack(padx=16, pady=16)
+    etiqueta_video._ultimo_frame = None
+
+    def _cerrar():
+        estado["activo"] = False
+        if estado["captura"] is not None:
+            estado["captura"].release()
+        camara_ventana.destroy()
+
+    def _actualizar_frame():
+        if not estado["activo"]:
+            return
+        ok, frame = estado["captura"].read()
+        if ok:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            imagen_ctk = ctk.CTkImage(Image.fromarray(frame_rgb), size=(480, 360))
+            etiqueta_video.configure(image=imagen_ctk, text="")
+            etiqueta_video.image = imagen_ctk
+            etiqueta_video._ultimo_frame = frame
+        camara_ventana.after(30, _actualizar_frame)
+
+    def _capturar():
+        frame = etiqueta_video._ultimo_frame
+        if frame is None:
+            messagebox.showerror("Error", "No se pudo leer la cámara.")
+            return
+        os.makedirs(carpeta_destino, exist_ok=True)
+        ruta = os.path.join(carpeta_destino, f"{uuid.uuid4().hex}.png")
+        cv2.imwrite(ruta, frame)
+        on_capturada(ruta)
+        _cerrar()
+
+    camara_ventana.protocol("WM_DELETE_WINDOW", _cerrar)
+
+    botones_camara = ctk.CTkFrame(camara_ventana, fg_color="transparent")
+    botones_camara.pack(fill="x", padx=16, pady=(0, 16))
+    ctk.CTkButton(botones_camara, text="Capturar", command=_capturar,
+                  **estilo_boton_primario).pack(side="left", expand=True, fill="x", padx=(0, 6))
+    ctk.CTkButton(botones_camara, text="Cancelar", command=_cerrar,
+                  fg_color="transparent", text_color=colores["subtext"],
+                  hover_color=colores["card_inner"]).pack(side="left", expand=True, fill="x", padx=(6, 0))
+
+    _actualizar_frame()
 
 
 def crear_kpi_card(padre, colores, numero, titulo, color_acento):

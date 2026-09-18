@@ -9,6 +9,15 @@ CREATE DATABASE IF NOT EXISTS sigito_db
 USE sigito_db;
 
 -- ---------------------------------------------------------
+-- Tabla: control_versiones (ver db/migraciones/000_control_versiones.sql)
+-- ---------------------------------------------------------
+CREATE TABLE control_versiones (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_migracion VARCHAR(150) NOT NULL UNIQUE,
+    aplicada_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ---------------------------------------------------------
 -- Tabla: categorias
 -- ---------------------------------------------------------
 CREATE TABLE categorias (
@@ -72,6 +81,7 @@ CREATE TABLE asignaciones (
     anio VARCHAR(20) NOT NULL,
     telefono VARCHAR(20) NOT NULL,
     correo VARCHAR(150) NOT NULL,
+    foto_alumno VARCHAR(255) NULL,
     profesor_autoriza_id INT NOT NULL,
     hora_salida DATETIME NOT NULL,
     hora_estimada_devolucion DATETIME NOT NULL,
@@ -132,6 +142,21 @@ INSERT INTO configuracion (clave, valor) VALUES
     ('correo_remitente',   ''),
     ('smtp_app_password',   ''),
     ('correo_copia_admin',  '');
+
+-- ---------------------------------------------------------
+-- Usuario admin por defecto: usuario "admin", contraseña "admin123"
+-- (hash bcrypt, costo 10 — ver utils/seguridad.py). Cámbiala desde
+-- Configuración > Contraseña de acceso en el primer inicio de sesión.
+-- ---------------------------------------------------------
+INSERT INTO usuarios (nombre, usuario, password_hash, rol, activo) VALUES
+    ('Administrador', 'admin', '$2b$10$ATNOGXNgpYKT602UVXacvO9R7RkboSoH5IaWaxVENvwgC2q1y0uVm', 'admin', TRUE);
+
+-- Registra las migraciones ya incorporadas a este schema, para que
+-- nadie las vuelva a aplicar por error.
+INSERT INTO control_versiones (nombre_migracion) VALUES
+    ('001_esquema_inicial.sql'),
+    ('002_configuracion.sql'),
+    ('003_foto_prestamo.sql');
 
 -- =========================================================
 -- NOTA: Ya no se crea un usuario de MySQL separado (sigito_app)

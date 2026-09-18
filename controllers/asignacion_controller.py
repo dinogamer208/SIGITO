@@ -15,7 +15,7 @@ from utils.auditoria import registrar_movimiento
 def registrar_prestamo(articulo_id: int, nombre_completo: str, seccion: str,
                         anio: str, telefono: str, correo: str,
                         profesor_autoriza_id: int, hora_estimada_devolucion,
-                        usuario_registro_id: int) -> int:
+                        usuario_registro_id: int, foto_alumno: str = None) -> int:
     conexion = obtener_conexion()
     cursor = conexion.cursor(dictionary=True)
 
@@ -36,12 +36,12 @@ def registrar_prestamo(articulo_id: int, nombre_completo: str, seccion: str,
     cursor.execute("""
         INSERT INTO asignaciones
         (articulo_id, nombre_completo, seccion, anio, telefono, correo,
-         profesor_autoriza_id, hora_salida, hora_estimada_devolucion,
-         estado, usuario_registro_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, 'en_uso', %s)
+         foto_alumno, profesor_autoriza_id, hora_salida,
+         hora_estimada_devolucion, estado, usuario_registro_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, 'en_uso', %s)
     """, (
         articulo_id, nombre_completo, seccion, anio, telefono, correo,
-        profesor_autoriza_id, hora_estimada_devolucion, usuario_registro_id
+        foto_alumno, profesor_autoriza_id, hora_estimada_devolucion, usuario_registro_id
     ))
     conexion.commit()
     nueva_id = cursor.lastrowid
@@ -107,6 +107,32 @@ def listar_asignaciones_activas() -> list[Asignacion]:
     cursor.close()
     conexion.close()
     return [Asignacion.desde_fila(fila) for fila in filas]
+
+
+def listar_devoluciones(limite: int = 30) -> list[dict]:
+    """
+    Historial de devoluciones ya registradas, con el nombre de quién
+    recibió cada equipo (usuario_devolucion_id) para poder mostrar en
+    pantalla quién ha devuelto cada préstamo.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT a.id, a.nombre_completo, a.seccion, a.anio,
+               a.hora_salida, a.hora_entrada_real,
+               art.nombre AS articulo_nombre, art.codigo_inventario,
+               u.nombre AS devuelto_por
+        FROM asignaciones a
+        JOIN articulos art ON art.id = a.articulo_id
+        LEFT JOIN usuarios u ON u.id = a.usuario_devolucion_id
+        WHERE a.hora_entrada_real IS NOT NULL
+        ORDER BY a.hora_entrada_real DESC
+        LIMIT %s
+    """, (limite,))
+    filas = cursor.fetchall()
+    cursor.close()
+    conexion.close()
+    return filas
 
 
 def listar_vencidas() -> list[Asignacion]:

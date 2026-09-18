@@ -8,3 +8,5 @@ reportlab
 openpyxl
 cryptography   # cifra la contraseña de aplicación SMTP (utils/seguridad.py)
 pytest         # pruebas de la lógica importante (carpeta tests/)
+tkcalendar     # calendario seleccionable (fecha de devolución en Asignaciones)
+opencv-python-headless   # captura de foto con cámara al registrar un préstamo
