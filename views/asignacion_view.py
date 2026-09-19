@@ -35,7 +35,7 @@ CARPETA_FOTOS_ALUMNOS = os.path.join("assets", "fotos_prestamos")
 
 class AsignacionView(ctk.CTkFrame):
 
-    ANCHOS = (170, 80, 140, 140, 100)
+    ANCHOS = (160, 70, 60, 130, 130, 90)
     ANCHOS_DEVUELTOS = (170, 180, 140, 140)
     _COLORES_AVATAR = ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B",
                         "#EF4444", "#06B6D4", "#EC4899", "#6366F1"]
@@ -81,7 +81,7 @@ class AsignacionView(ctk.CTkFrame):
 
         crear_encabezado_tabla(
             interior, self.c,
-            ["Alumno", "Sección", "Salida", "Devolución esperada", "Estado"],
+            ["Alumno", "Sección", "Cant.", "Salida", "Devolución esperada", "Estado"],
             self.ANCHOS
         )
 
@@ -236,6 +236,7 @@ class AsignacionView(ctk.CTkFrame):
                 [
                     lambda celda, nombre=a.nombre_completo: self._celda_alumno(celda, nombre),
                     f"{a.seccion} {a.anio}",
+                    str(a.cantidad),
                     a.hora_salida.strftime("%Y-%m-%d %H:%M"),
                     a.hora_estimada_devolucion.strftime("%Y-%m-%d %H:%M"),
                     _celda_estado,
@@ -260,7 +261,13 @@ class AsignacionView(ctk.CTkFrame):
     # FORMULARIO — nuevo préstamo
     # ------------------------------------------------------------
     def _on_nuevo_prestamo(self):
-        articulos_disponibles = listar_articulos(estado_disponibilidad="disponible")
+        # Solo artículos con unidades libres de verdad: uno puede estar
+        # "disponible" en general pero con cantidad_disponible en 0 si ya
+        # se prestó todo el stock.
+        articulos_disponibles = [
+            a for a in listar_articulos(estado_disponibilidad="disponible")
+            if a.cantidad_disponible > 0
+        ]
         profesores = listar_profesores()
 
         if not articulos_disponibles:
@@ -293,7 +300,10 @@ class AsignacionView(ctk.CTkFrame):
         interior.grid_columnconfigure(0, weight=1, uniform="col", minsize=300)
         interior.grid_columnconfigure(1, weight=1, uniform="col", minsize=300)
 
-        mapa_articulos = {f"{a.codigo_inventario} - {a.nombre}": a.id for a in articulos_disponibles}
+        mapa_articulos = {
+            f"{a.codigo_inventario} - {a.nombre} ({a.cantidad_disponible} disp.)": a.id
+            for a in articulos_disponibles
+        }
         mapa_profesores = {p["nombre_completo"]: p["id"] for p in profesores}
 
         campos = {}
@@ -339,6 +349,16 @@ class AsignacionView(ctk.CTkFrame):
             frame_articulo, placeholder_text="Escanear código de barras del artículo...",
         )
         entrada_escaneo.pack(fill="x", pady=(6, 0))
+
+        # Cuántas unidades idénticas de este artículo se llevan (ej. 3
+        # calculadoras iguales) en un solo préstamo, en vez de repetir el
+        # formulario una vez por cada una. Vacío = 1.
+        fila_cantidad = ctk.CTkFrame(frame_articulo, fg_color="transparent")
+        fila_cantidad.pack(fill="x", pady=(6, 0))
+        ctk.CTkLabel(fila_cantidad, text="Cantidad (vacío = 1):", anchor="w",
+                     text_color=self.c["subtext"], font=("Segoe UI", 11)).pack(side="left")
+        entrada_cantidad = ctk.CTkEntry(fila_cantidad, width=60, placeholder_text="1")
+        entrada_cantidad.pack(side="left", padx=(8, 0))
 
         def _on_escaneo_articulo(event=None):
             codigo = entrada_escaneo.get().strip()
@@ -500,9 +520,23 @@ class AsignacionView(ctk.CTkFrame):
                 messagebox.showerror("Error", "Correo inválido.")
                 return
 
+            cantidad_texto = entrada_cantidad.get().strip()
+            cantidad = 1
+            if cantidad_texto:
+                if not cantidad_texto.isdigit() or int(cantidad_texto) < 1:
+                    messagebox.showerror("Error", "La cantidad debe ser un número entero de 1 o más.")
+                    return
+                cantidad = int(cantidad_texto)
+
+            articulo_id_elegido = mapa_articulos[combo_articulo.get()]
+
+            # Una sola fila de asignación con `cantidad` unidades del mismo
+            # artículo: el controlador valida y descuenta el stock en una
+            # sola operación (antes esto hacía un préstamo por unidad, lo
+            # que volvía lenta la pantalla al pedir cantidades grandes).
             try:
                 registrar_prestamo(
-                    articulo_id=mapa_articulos[combo_articulo.get()],
+                    articulo_id=articulo_id_elegido,
                     nombre_completo=nombre,
                     seccion=seccion,
                     anio=anio,
@@ -512,6 +546,7 @@ class AsignacionView(ctk.CTkFrame):
                     hora_estimada_devolucion=hora_dev,
                     usuario_registro_id=self.usuario.id if self.usuario else None,
                     foto_alumno=foto_estado["path"],
+                    cantidad=cantidad,
                 )
             except ValueError as error:
                 messagebox.showerror("Error", str(error))

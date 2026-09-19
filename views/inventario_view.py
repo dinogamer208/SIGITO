@@ -10,9 +10,11 @@ de views/componentes.py (tarjetas KPI, badges, tabla).
 import os
 import shutil
 import uuid
+from datetime import date
 
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
+from tkcalendar import Calendar
 from PIL import Image
 
 from controllers.inventario_controller import (
@@ -20,7 +22,7 @@ from controllers.inventario_controller import (
     listar_categorias, agregar_categoria, editar_categoria, eliminar_categoria,
     generar_etiqueta, buscar_articulo_por_codigo
 )
-from utils.validaciones import campo_no_vacio, fecha_valida
+from utils.validaciones import campo_no_vacio
 from views.tema import COLORES, colores_dashboard, ESTILO_BOTON_PRIMARIO, ESTILO_BOTON_SECUNDARIO, color_badge
 from views.componentes import (
     crear_card, crear_encabezado, crear_kpi_card,
@@ -34,7 +36,7 @@ EXTENSIONES_FOTO = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
 class InventarioView(ctk.CTkFrame):
 
-    ANCHOS = (56, 85, 170, 110, 100, 110)
+    ANCHOS = (50, 80, 150, 100, 90, 70, 100)
 
     def __init__(self, master):
         super().__init__(master, fg_color="transparent")
@@ -103,7 +105,7 @@ class InventarioView(ctk.CTkFrame):
 
         crear_encabezado_tabla(
             interior, self.c,
-            ["Foto", "Código", "Nombre", "Categoría", "Estado", "Ubicación"],
+            ["Foto", "Código", "Nombre", "Categoría", "Estado", "Stock", "Ubicación"],
             self.ANCHOS
         )
 
@@ -118,10 +120,14 @@ class InventarioView(ctk.CTkFrame):
         for hijo in self.fila_kpis.winfo_children():
             hijo.destroy()
 
-        total = len(articulos)
-        disponibles = sum(1 for a in articulos if a.estado_disponibilidad == "disponible")
-        prestados = sum(1 for a in articulos if a.estado_disponibilidad == "prestado")
-        de_baja = sum(1 for a in articulos if a.estado_disponibilidad == "de_baja")
+        # Cada fila es un tipo de artículo con cantidad_total/
+        # cantidad_disponible, así que los KPIs suman unidades en stock
+        # en vez de contar filas.
+        activos = [a for a in articulos if a.estado_disponibilidad == "disponible"]
+        disponibles = sum(a.cantidad_disponible for a in activos)
+        prestados = sum(a.cantidad_total - a.cantidad_disponible for a in activos)
+        de_baja = sum(a.cantidad_total for a in articulos if a.estado_disponibilidad == "de_baja")
+        total = disponibles + prestados + de_baja
 
         datos = [
             (total,       "Total de equipos", COLORES["azul_primario"]),
@@ -168,12 +174,27 @@ class InventarioView(ctk.CTkFrame):
         nombre_categoria = {v: k for k, v in self._categorias.items()}
 
         for a in articulos:
-            fondo, texto_color = color_badge(a.estado_disponibilidad)
+            # "Agotado" (sin unidades libres) es un estado derivado del
+            # stock, no algo guardado en la BD: solo existen 'disponible'
+            # y 'de_baja' en la columna estado_disponibilidad.
+            if a.estado_disponibilidad == "de_baja":
+                estado_mostrado = "de_baja"
+            elif a.cantidad_disponible <= 0:
+                estado_mostrado = "agotado"
+            else:
+                estado_mostrado = "disponible"
+            fondo, texto_color = color_badge(estado_mostrado)
 
-            def _celda_estado(celda, estado=a.estado_disponibilidad, fondo=fondo, texto_color=texto_color):
+            def _celda_estado(celda, estado=estado_mostrado, fondo=fondo, texto_color=texto_color):
                 crear_badge(celda, estado.replace("_", " ").title(), fondo, texto_color).place(
                     relx=0, rely=0.5, anchor="w"
                 )
+
+            def _celda_stock(celda, art=a):
+                ctk.CTkLabel(
+                    celda, text=f"{art.cantidad_disponible}/{art.cantidad_total}",
+                    text_color=self.c["texto"], font=("Segoe UI", 12)
+                ).place(relx=0, rely=0.5, anchor="w")
 
             def _celda_foto(celda, ruta=a.foto_path):
                 imagen = self._miniatura(ruta)
@@ -194,6 +215,7 @@ class InventarioView(ctk.CTkFrame):
                     a.nombre,
                     nombre_categoria.get(a.categoria_id, "—"),
                     _celda_estado,
+                    _celda_stock,
                     a.ubicacion_actual or "—",
                 ],
                 self.ANCHOS,
@@ -469,8 +491,20 @@ class InventarioView(ctk.CTkFrame):
         else:
             _campo_entry(0, 0, "Nombre", articulo.nombre, colspan=2)
 
-        # Fila 1: Categoría (+ botón "+") | Marca
-        frame_categoria = _celda(1, 0)
+        # Fila 1: al agregar, código de barras (opcional) + cantidad en
+        # stock; al editar, solo la cantidad en stock (el código ya no se
+        # toca). Cada fila de articulos es un TIPO de artículo con un
+        # contador de unidades (cantidad_total/cantidad_disponible), no
+        # una fila por unidad física.
+        fila_extra = 1
+        if not articulo:
+            _campo_entry(1, 0, "Código de barras (opcional, déjalo vacío para generarlo)", "")
+            _campo_entry(1, 1, "Cantidad en stock (vacío = 1)", "")
+        else:
+            _campo_entry(1, 0, "Cantidad en stock (vacío = 1)", str(articulo.cantidad_total), colspan=2)
+
+        # Fila 1+extra: Categoría (+ botón "+") | Marca
+        frame_categoria = _celda(1 + fila_extra, 0)
         ctk.CTkLabel(frame_categoria, text="Categoría", anchor="w",
                      text_color=self.c["subtext"], font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
         fila_categoria = ctk.CTkFrame(frame_categoria, fg_color="transparent")
@@ -525,27 +559,57 @@ class InventarioView(ctk.CTkFrame):
             **ESTILO_BOTON_SECUNDARIO
         ).pack(side="left", padx=(8, 0))
 
-        _campo_entry(1, 1, "Marca", articulo.marca if articulo else "")
+        _campo_entry(1 + fila_extra, 1, "Marca", articulo.marca if articulo else "")
 
-        # Fila 2: Modelo | Serie
-        _campo_entry(2, 0, "Modelo", articulo.modelo if articulo else "")
-        _campo_entry(2, 1, "Serie", articulo.serie if articulo else "")
+        # Fila 2+extra: Modelo | Serie
+        _campo_entry(2 + fila_extra, 0, "Modelo", articulo.modelo if articulo else "")
+        _campo_entry(2 + fila_extra, 1, "Serie", articulo.serie if articulo else "")
 
-        # Fila 3: Ubicación | Fecha de adquisición
-        _campo_entry(3, 0, "Ubicación", articulo.ubicacion_actual if articulo else "")
-        _campo_entry(3, 1, "Fecha adquisición (YYYY-MM-DD)",
-                     str(articulo.fecha_adquisicion) if articulo and articulo.fecha_adquisicion else "")
+        # Fila 3+extra: Ubicación | Fecha de adquisición (mismo widget de
+        # calendario que "Nuevo préstamo" en asignacion_view.py, en vez de
+        # un texto libre que había que escribir a mano).
+        _campo_entry(3 + fila_extra, 0, "Ubicación", articulo.ubicacion_actual if articulo else "")
 
-        # Fila 4: Estado físico (la otra columna queda como espaciador)
-        frame_estado = _celda(4, 0)
+        frame_fecha = _celda(3 + fila_extra, 1)
+        ctk.CTkLabel(frame_fecha, text="Fecha de adquisición", anchor="w",
+                     text_color=self.c["subtext"], font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
+
+        fecha_inicial = articulo.fecha_adquisicion if articulo and articulo.fecha_adquisicion else date.today()
+        calendario_adquisicion = Calendar(
+            frame_fecha,
+            selectmode="day",
+            date_pattern="yyyy-mm-dd",
+            year=fecha_inicial.year, month=fecha_inicial.month, day=fecha_inicial.day,
+            maxdate=date.today(),
+            showweeknumbers=False,
+            font=("Segoe UI", 11),
+            background=self.c["card_inner"],
+            foreground=self.c["texto"],
+            headersbackground=self.c["card_inner"],
+            headersforeground=self.c["texto"],
+            normalbackground=self.c["card"],
+            normalforeground=self.c["texto"],
+            weekendbackground=self.c["card"],
+            weekendforeground=self.c["texto"],
+            othermonthbackground=self.c["card_inner"],
+            othermonthforeground=self.c["subtext"],
+            selectbackground=COLORES["azul_primario"],
+            selectforeground="#FFFFFF",
+            bordercolor=self.c["borde"],
+            borderwidth=1,
+        )
+        calendario_adquisicion.pack(fill="x", ipady=2)
+
+        # Fila 4+extra: Estado físico (la otra columna queda como espaciador)
+        frame_estado = _celda(4 + fila_extra, 0)
         ctk.CTkLabel(frame_estado, text="Estado físico", anchor="w",
                      text_color=self.c["subtext"], font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
         combo_estado = ctk.CTkComboBox(frame_estado, values=["bueno", "regular", "dañado"], state="readonly")
         combo_estado.set(articulo.estado_fisico if articulo else "bueno")
         combo_estado.pack(fill="x")
 
-        # Fila 5: Foto del artículo (ancho completo)
-        frame_foto = _celda(5, 0, colspan=2)
+        # Fila 5+extra: Foto del artículo (ancho completo)
+        frame_foto = _celda(5 + fila_extra, 0, colspan=2)
         ctk.CTkLabel(frame_foto, text="Foto", anchor="w",
                      text_color=self.c["subtext"], font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
 
@@ -625,7 +689,7 @@ class InventarioView(ctk.CTkFrame):
         def _guardar():
             nombre = campos["Nombre"].get().strip()
             categoria_nombre = combo_categoria.get()
-            fecha = campos["Fecha adquisición (YYYY-MM-DD)"].get().strip()
+            fecha = calendario_adquisicion.get_date()
 
             if not campo_no_vacio(nombre):
                 messagebox.showerror("Error", "El nombre es obligatorio.")
@@ -633,9 +697,14 @@ class InventarioView(ctk.CTkFrame):
             if categoria_nombre not in self._categorias:
                 messagebox.showerror("Error", "Selecciona una categoría válida.")
                 return
-            if fecha and not fecha_valida(fecha):
-                messagebox.showerror("Error", "Fecha inválida, usa el formato YYYY-MM-DD.")
-                return
+
+            cantidad_texto = campos["Cantidad en stock (vacío = 1)"].get().strip()
+            cantidad_total = 1
+            if cantidad_texto:
+                if not cantidad_texto.isdigit() or int(cantidad_texto) < 1:
+                    messagebox.showerror("Error", "La cantidad en stock debe ser un número entero de 1 o más.")
+                    return
+                cantidad_total = int(cantidad_texto)
 
             datos = {
                 "nombre": nombre,
@@ -645,21 +714,27 @@ class InventarioView(ctk.CTkFrame):
                 "serie": campos["Serie"].get().strip() or None,
                 "foto_path": foto_estado["path"],
                 "estado_fisico": combo_estado.get(),
-                "fecha_adquisicion": fecha or None,
+                "fecha_adquisicion": fecha,
                 "ubicacion_actual": campos["Ubicación"].get().strip() or None,
+                "cantidad_total": cantidad_total,
             }
 
-            if articulo:
-                editar_articulo(articulo.id, datos)
-            else:
-                datos["prefijo_codigo"] = campos["Prefijo (TEC/OFI/AUD)"].get().strip().upper() or "TEC"
-                agregar_articulo(datos)
+            try:
+                if articulo:
+                    editar_articulo(articulo.id, datos)
+                else:
+                    datos["prefijo_codigo"] = campos["Prefijo (TEC/OFI/AUD)"].get().strip().upper() or "TEC"
+                    datos["codigo_manual"] = campos["Código de barras (opcional, déjalo vacío para generarlo)"].get().strip()
+                    agregar_articulo(datos)
+            except ValueError as error:
+                messagebox.showerror("Error", str(error))
+                return
 
             ventana.destroy()
             self._cargar_articulos()
 
-        # Fila 6: botón de guardar (ancho completo)
-        frame_boton = _celda(6, 0, colspan=2)
+        # Fila 6+extra: botón de guardar (ancho completo)
+        frame_boton = _celda(6 + fila_extra, 0, colspan=2)
         ctk.CTkButton(frame_boton, text="Guardar", command=_guardar,
                       **ESTILO_BOTON_PRIMARIO).pack(fill="x", pady=(6, 0))
 

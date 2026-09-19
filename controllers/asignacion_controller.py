@@ -8,19 +8,20 @@ from datetime import datetime
 
 from db.conexion import obtener_conexion
 from models.asignacion import Asignacion
-from controllers.inventario_controller import actualizar_estado_articulo
 from utils.auditoria import registrar_movimiento
 
 
 def registrar_prestamo(articulo_id: int, nombre_completo: str, seccion: str,
                         anio: str, telefono: str, correo: str,
                         profesor_autoriza_id: int, hora_estimada_devolucion,
-                        usuario_registro_id: int, foto_alumno: str = None) -> int:
+                        usuario_registro_id: int, foto_alumno: str = None,
+                        cantidad: int = 1) -> int:
     conexion = obtener_conexion()
     cursor = conexion.cursor(dictionary=True)
 
     cursor.execute(
-        "SELECT estado_disponibilidad FROM articulos WHERE id = %s FOR UPDATE",
+        "SELECT estado_disponibilidad, cantidad_disponible FROM articulos "
+        "WHERE id = %s FOR UPDATE",
         (articulo_id,)
     )
     fila = cursor.fetchone()
@@ -32,15 +33,26 @@ def registrar_prestamo(articulo_id: int, nombre_completo: str, seccion: str,
         cursor.close()
         conexion.close()
         raise ValueError("El artículo no está disponible para préstamo.")
+    if fila["cantidad_disponible"] < cantidad:
+        cursor.close()
+        conexion.close()
+        raise ValueError(
+            f"Solo hay {fila['cantidad_disponible']} unidad(es) disponible(s) de este artículo."
+        )
+
+    cursor.execute(
+        "UPDATE articulos SET cantidad_disponible = cantidad_disponible - %s WHERE id = %s",
+        (cantidad, articulo_id)
+    )
 
     cursor.execute("""
         INSERT INTO asignaciones
-        (articulo_id, nombre_completo, seccion, anio, telefono, correo,
+        (articulo_id, cantidad, nombre_completo, seccion, anio, telefono, correo,
          foto_alumno, profesor_autoriza_id, hora_salida,
          hora_estimada_devolucion, estado, usuario_registro_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, 'en_uso', %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, 'en_uso', %s)
     """, (
-        articulo_id, nombre_completo, seccion, anio, telefono, correo,
+        articulo_id, cantidad, nombre_completo, seccion, anio, telefono, correo,
         foto_alumno, profesor_autoriza_id, hora_estimada_devolucion, usuario_registro_id
     ))
     conexion.commit()
@@ -48,13 +60,12 @@ def registrar_prestamo(articulo_id: int, nombre_completo: str, seccion: str,
     cursor.close()
     conexion.close()
 
-    actualizar_estado_articulo(articulo_id, "prestado")
     registrar_movimiento(
         articulo_id=articulo_id,
         tipo_movimiento="prestamo",
         usuario_id=usuario_registro_id,
         asignacion_id=nueva_id,
-        detalle=f"Préstamo a {nombre_completo} ({seccion} {anio})"
+        detalle=f"Préstamo de {cantidad} unidad(es) a {nombre_completo} ({seccion} {anio})"
     )
 
     return nueva_id
@@ -81,18 +92,23 @@ def registrar_devolucion(asignacion_id: int, usuario_devolucion_id: int) -> None
             usuario_devolucion_id = %s
         WHERE id = %s
     """, (usuario_devolucion_id, asignacion_id))
+
+    articulo_id = fila["articulo_id"]
+    cursor.execute(
+        "UPDATE articulos SET cantidad_disponible = LEAST(cantidad_total, cantidad_disponible + %s) "
+        "WHERE id = %s",
+        (fila["cantidad"], articulo_id)
+    )
     conexion.commit()
     cursor.close()
     conexion.close()
 
-    articulo_id = fila["articulo_id"]
-    actualizar_estado_articulo(articulo_id, "disponible")
     registrar_movimiento(
         articulo_id=articulo_id,
         tipo_movimiento="devolucion",
         usuario_id=usuario_devolucion_id,
         asignacion_id=asignacion_id,
-        detalle=f"Devolución registrada para {fila['nombre_completo']}"
+        detalle=f"Devolución de {fila['cantidad']} unidad(es) registrada para {fila['nombre_completo']}"
     )
 
 

@@ -11,17 +11,28 @@ from db.conexion import obtener_conexion
 
 
 def resumen_articulos_por_estado() -> list[dict]:
+    """
+    Cada fila de `articulos` es un tipo de artículo con cantidad_total/
+    cantidad_disponible (no una unidad física), así que "disponible" y
+    "prestado" ahora sirven de unidades en stock, no de filas contadas.
+    """
     conexion = obtener_conexion()
     cursor = conexion.cursor(dictionary=True)
     cursor.execute("""
-        SELECT estado_disponibilidad AS estado, COUNT(*) AS cantidad
+        SELECT
+            SUM(CASE WHEN estado_disponibilidad = 'disponible' THEN cantidad_disponible ELSE 0 END) AS disponible,
+            SUM(CASE WHEN estado_disponibilidad = 'disponible' THEN cantidad_total - cantidad_disponible ELSE 0 END) AS prestado,
+            SUM(CASE WHEN estado_disponibilidad = 'de_baja' THEN cantidad_total ELSE 0 END) AS de_baja
         FROM articulos
-        GROUP BY estado_disponibilidad
     """)
-    filas = cursor.fetchall()
+    fila = cursor.fetchone()
     cursor.close()
     conexion.close()
-    return filas
+
+    return [
+        {"estado": estado, "cantidad": int(fila.get(estado) or 0)}
+        for estado in ("disponible", "prestado", "de_baja")
+    ]
 
 
 def prestamos_vencidos() -> list[dict]:

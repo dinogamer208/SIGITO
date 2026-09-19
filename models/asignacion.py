@@ -17,6 +17,7 @@ from typing import Optional
 class Asignacion:
     id: int
     articulo_id: int
+    cantidad: int
     nombre_completo: str
     seccion: str
     anio: str
@@ -38,6 +39,7 @@ class Asignacion:
         return Asignacion(
             id=fila["id"],
             articulo_id=fila["articulo_id"],
+            cantidad=fila.get("cantidad", 1),
             nombre_completo=fila["nombre_completo"],
             seccion=fila["seccion"],
             anio=fila["anio"],

@@ -39,7 +39,9 @@ CREATE TABLE articulos (
     serie VARCHAR(100),
     foto_path VARCHAR(255),
     estado_fisico ENUM('bueno', 'regular', 'dañado') DEFAULT 'bueno',
-    estado_disponibilidad ENUM('disponible', 'prestado', 'de_baja') DEFAULT 'disponible',
+    estado_disponibilidad ENUM('disponible', 'de_baja') DEFAULT 'disponible',
+    cantidad_total INT NOT NULL DEFAULT 1,
+    cantidad_disponible INT NOT NULL DEFAULT 1,
     fecha_adquisicion DATE,
     ubicacion_actual VARCHAR(150),
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -76,6 +78,7 @@ CREATE TABLE profesores_autorizados (
 CREATE TABLE asignaciones (
     id INT AUTO_INCREMENT PRIMARY KEY,
     articulo_id INT NOT NULL,
+    cantidad INT NOT NULL DEFAULT 1,
     nombre_completo VARCHAR(150) NOT NULL,
     seccion VARCHAR(20) NOT NULL,
     anio VARCHAR(20) NOT NULL,
@@ -156,7 +159,8 @@ INSERT INTO usuarios (nombre, usuario, password_hash, rol, activo) VALUES
 INSERT INTO control_versiones (nombre_migracion) VALUES
     ('001_esquema_inicial.sql'),
     ('002_configuracion.sql'),
-    ('003_foto_prestamo.sql');
+    ('003_foto_prestamo.sql'),
+    ('004_stock.sql');
 
 -- =========================================================
 -- NOTA: Ya no se crea un usuario de MySQL separado (sigito_app)

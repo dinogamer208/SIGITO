@@ -49,6 +49,7 @@ def generar_codigo_inventario(prefijo):
 
     return f"{prefijo}-{siguiente:04d}" # TEC-0001, TEC-0002, etc.
 
+
 # -----------------------------------------------------
 # Agregar articulo nuevo
 # -----------------------------------------------------
@@ -56,24 +57,48 @@ def agregar_articulo(datos):
     """
     datos: diccionario con las llaves:
     nombre, categoria_id, marca, modelo, serie, foto_path,
-    estado_fisico, fecha_adquisicion, ubicacion_actual, prefijo_codigo
+    estado_fisico, fecha_adquisicion, ubicacion_actual, prefijo_codigo,
+    cantidad_total (opcional, default 1: cuántas unidades hay en stock
+    de este artículo), codigo_manual (opcional: código de barras que el
+    artículo ya trae de fábrica; si no se da, se genera uno nuevo con
+    prefijo_codigo).
+
+    Cada fila de `articulos` es un TIPO de artículo (ej. "Calculadora
+    Casio"), no una unidad física: la cantidad se controla con
+    cantidad_total/cantidad_disponible en vez de dar de alta una fila
+    por cada unidad (eso era lento con cantidades grandes y obligaba a
+    inventar códigos de barras con sufijo -2/-3... para cada copia).
     """
 
-    codigo_inventario = generar_codigo_inventario(datos["prefijo_codigo"])
+    codigo_manual = (datos.get("codigo_manual") or "").strip()
+    cantidad_total = datos.get("cantidad_total") or 1
 
     conexion = obtener_conexion()
     cursor = conexion.cursor()
 
+    if codigo_manual:
+        cursor.execute(
+            "SELECT id FROM articulos WHERE codigo_inventario = %s", (codigo_manual,)
+        )
+        if cursor.fetchone():
+            cursor.close()
+            conexion.close()
+            raise ValueError(f"Ya existe un artículo con el código '{codigo_manual}'.")
+        codigo_inventario = codigo_manual
+    else:
+        codigo_inventario = generar_codigo_inventario(datos["prefijo_codigo"])
+
     cursor.execute("""
         INSERT INTO articulos
         (codigo_inventario, nombre, categoria_id, marca, modelo, serie,
-        foto_path, estado_fisico, estado_disponibilidad, fecha_adquisicion,
-        ubicacion_actual)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'disponible', %s, %s)
+        foto_path, estado_fisico, estado_disponibilidad, cantidad_total,
+        cantidad_disponible, fecha_adquisicion, ubicacion_actual)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'disponible', %s, %s, %s, %s)
     """, (
         codigo_inventario, datos["nombre"], datos["categoria_id"],
         datos.get("marca"), datos.get("modelo"), datos.get("serie"),
-        datos.get("foto_path"), datos.get("estado_fisico","bueno"),
+        datos.get("foto_path"), datos.get("estado_fisico", "bueno"),
+        cantidad_total, cantidad_total,
         datos.get("fecha_adquisicion"), datos.get("ubicacion_actual")
     ))
 
@@ -85,7 +110,7 @@ def agregar_articulo(datos):
     registrar_movimiento(
         articulo_id=nuevo_id,
         tipo_movimiento="alta",
-        detalle=f"Artículo agregado: {codigo_inventario} - {datos['nombre']}"
+        detalle=f"Artículo agregado: {codigo_inventario} - {datos['nombre']} (stock: {cantidad_total})"
     )
 
     return codigo_inventario, nuevo_id
@@ -94,34 +119,64 @@ def agregar_articulo(datos):
 # Editar artículo existente
 # ---------------------------------------------------------
 def editar_articulo(id_articulo, datos):
+    """
+    Si `datos` trae "cantidad_total", ajusta también cantidad_disponible
+    por la misma diferencia (ej. si el stock sube de 5 a 8, disponible
+    también sube en 3; si baja, no se permite dejar cantidad_disponible
+    en negativo -habría más unidades prestadas que stock nuevo-).
+    """
     conexion = obtener_conexion()
     cursor = conexion.cursor()
 
-    cursor.execute("""
+    campos_extra = ""
+    valores_extra = []
+    if "cantidad_total" in datos and datos["cantidad_total"] is not None:
+        cursor.execute(
+            "SELECT cantidad_total, cantidad_disponible FROM articulos WHERE id = %s",
+            (id_articulo,)
+        )
+        fila = cursor.fetchone()
+        if fila:
+            total_anterior, disponible_anterior = fila
+            nuevo_total = datos["cantidad_total"]
+            nuevo_disponible = disponible_anterior + (nuevo_total - total_anterior)
+            if nuevo_disponible < 0:
+                cursor.close()
+                conexion.close()
+                prestadas = total_anterior - disponible_anterior
+                raise ValueError(
+                    f"No puedes bajar el stock a {nuevo_total}: hay {prestadas} "
+                    "unidad(es) prestada(s) en este momento."
+                )
+            campos_extra = ", cantidad_total = %s, cantidad_disponible = %s"
+            valores_extra = [nuevo_total, nuevo_disponible]
+
+    cursor.execute(f"""
         UPDATE articulos SET
             nombre = %s, categoria_id = %s, marca = %s, modelo = %s,
             serie = %s, foto_path = %s, estado_fisico = %s,
-            fecha_adquisicion = %s, ubicacion_actual = %s
+            fecha_adquisicion = %s, ubicacion_actual = %s{campos_extra}
         WHERE id = %s
     """, (
         datos["nombre"], datos["categoria_id"], datos.get("marca"),
         datos.get("modelo"), datos.get("serie"), datos.get("foto_path"),
         datos.get("estado_fisico"), datos.get("fecha_adquisicion"),
-        datos.get("ubicacion_actual"), id_articulo
-    )) 
+        datos.get("ubicacion_actual"), *valores_extra, id_articulo
+    ))
 
     conexion.commit()
     cursor.close()
     conexion.close()
 
 # ---------------------------------------------------------
-# Dar de baja un artículo
+# Dar de baja un artículo (todo el stock deja de poder prestarse)
 # ---------------------------------------------------------
 def dar_de_baja(id_articulo):
     conexion = obtener_conexion()
     cursor = conexion.cursor()
     cursor.execute(
-        "UPDATE articulos SET estado_disponibilidad = 'de_baja' WHERE id = %s",
+        "UPDATE articulos SET estado_disponibilidad = 'de_baja', cantidad_disponible = 0 "
+        "WHERE id = %s",
         (id_articulo,)
     )
     conexion.commit()
@@ -133,21 +188,6 @@ def dar_de_baja(id_articulo):
         tipo_movimiento="baja",
         detalle=f"Artículo id={id_articulo} dado de baja"
     )
-
-# ---------------------------------------------------------
-# Actualizar estado de disponibilidad
-# Usado por asignacion_controller.py al prestar/devolver un artículo.
-# ---------------------------------------------------------
-def actualizar_estado_articulo(id_articulo, nuevo_estado):
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE articulos SET estado_disponibilidad = %s WHERE id = %s",
-        (nuevo_estado, id_articulo)
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
 
 # ---------------------------------------------------------
 # Buscar artículo por código (usado por el escáner)
