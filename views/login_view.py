@@ -14,8 +14,13 @@ import threading
 import customtkinter as ctk
 from tkinter import messagebox
 
+from controllers import auth_controller, config_controller
 from controllers.auth_controller import iniciar_sesion
-from views.tema import COLORES, color_fondo, color_card, color_texto, ESTILO_BOTON_PRIMARIO, forzar_redibujo
+from views.tema import (
+    COLORES, color_fondo, color_card, color_texto, colores_dashboard,
+    ESTILO_BOTON_PRIMARIO, ESTILO_BOTON_SECUNDARIO, forzar_redibujo,
+)
+from views.componentes import crear_card, crear_campo_password
 
 
 class LoginView(ctk.CTkToplevel):
@@ -44,7 +49,7 @@ class LoginView(ctk.CTkToplevel):
         tarjeta = ctk.CTkFrame(
             self, fg_color=color_card(), corner_radius=16,
             border_width=1, border_color=COLORES["card_borde_oscuro"],
-            width=380, height=420
+            width=380, height=460
         )
         tarjeta.place(relx=0.5, rely=0.5, anchor="center")
         tarjeta.pack_propagate(False)
@@ -68,8 +73,9 @@ class LoginView(ctk.CTkToplevel):
 
         ctk.CTkLabel(tarjeta, text="Contraseña", anchor="w",
                      text_color=color_texto()).pack(fill="x", padx=30)
-        self.entry_password = ctk.CTkEntry(tarjeta, height=38, corner_radius=8, show="*")
-        self.entry_password.pack(fill="x", padx=30, pady=(4, 24))
+        frame_password, self.entry_password = crear_campo_password(
+            tarjeta, colores_dashboard(), height=38, corner_radius=8)
+        frame_password.pack(fill="x", padx=30, pady=(4, 24))
         self.entry_password.bind("<Return>", lambda _evento: self._on_login())
 
         self.boton_login = ctk.CTkButton(
@@ -78,7 +84,199 @@ class LoginView(ctk.CTkToplevel):
         )
         self.boton_login.pack(fill="x", padx=30)
 
+        ctk.CTkButton(
+            tarjeta, text="¿Olvidaste tu contraseña?", height=28,
+            fg_color="transparent", hover_color=color_card(),
+            text_color=COLORES["texto_sec_oscuro"], font=("Segoe UI", 11, "underline"),
+            command=self._abrir_recuperacion,
+        ).pack(fill="x", padx=30, pady=(10, 0))
+
         self.entry_usuario.focus_set()
+
+    # ------------------------------------------------------------
+    # Recuperación de cuenta (código local o correo; si ninguno está
+    # disponible para ese usuario, se muestra el contacto de soporte).
+    # ------------------------------------------------------------
+    def _abrir_recuperacion(self):
+        c = colores_dashboard()
+
+        ventana = ctk.CTkToplevel(self)
+        ventana.title("Recuperar contraseña")
+        ventana.geometry("380x360")
+        ventana.configure(fg_color=color_fondo())
+        ventana.transient(self)
+        ventana.grab_set()
+        ventana.resizable(False, False)
+
+        tarjeta = crear_card(ventana, c)
+        tarjeta.pack(fill="both", expand=True, padx=16, pady=16)
+        contenido = ctk.CTkFrame(tarjeta, fg_color="transparent")
+        contenido.pack(fill="both", expand=True, padx=18, pady=18)
+
+        estado = {"usuario": None}
+
+        class _CambiarAContacto(Exception):
+            """Señal interna: el flujo de código/correo debe cambiar a la
+            pantalla de contacto de soporte en vez de mostrar un error."""
+
+        def _limpiar():
+            for hijo in contenido.winfo_children():
+                hijo.destroy()
+
+        def _ajustar_alto():
+            ventana.update_idletasks()
+            alto = tarjeta.winfo_reqheight() + 32
+            ventana.geometry(f"380x{max(alto, 260)}")
+
+        def _mostrar_contacto():
+            _limpiar()
+            ctk.CTkLabel(
+                contenido, text="No hay forma de recuperar esta cuenta automáticamente.",
+                text_color=c["texto"], font=("Segoe UI", 13, "bold"),
+                wraplength=300, justify="left",
+            ).pack(anchor="w", pady=(0, 10))
+
+            try:
+                contacto = config_controller.obtener_contacto_soporte()
+            except Exception:
+                contacto = {"soporte_telefono": "", "soporte_coordinador": "", "soporte_correo": ""}
+
+            lineas = []
+            if contacto.get("soporte_coordinador"):
+                lineas.append(f"Coordinador: {contacto['soporte_coordinador']}")
+            if contacto.get("soporte_telefono"):
+                lineas.append(f"Teléfono: {contacto['soporte_telefono']}")
+            if contacto.get("soporte_correo"):
+                lineas.append(f"Correo: {contacto['soporte_correo']}")
+
+            texto = "\n".join(lineas) if lineas else (
+                "Comunícate con el administrador del sistema para que te "
+                "restablezca la contraseña."
+            )
+            ctk.CTkLabel(
+                contenido, text=texto, text_color=c["subtext"], font=("Segoe UI", 12),
+                justify="left", wraplength=300,
+            ).pack(anchor="w")
+
+            ctk.CTkButton(
+                contenido, text="Cerrar", command=ventana.destroy, **ESTILO_BOTON_SECUNDARIO,
+            ).pack(fill="x", pady=(16, 0))
+            _ajustar_alto()
+
+        def _pantalla_inicial():
+            _limpiar()
+            ctk.CTkLabel(
+                contenido, text="Usuario", anchor="w", text_color=c["texto"], font=("Segoe UI", 12),
+            ).pack(fill="x", pady=(0, 2))
+            entrada_usuario = ctk.CTkEntry(contenido)
+            entrada_usuario.pack(fill="x")
+            entrada_usuario.focus_set()
+
+            lbl_error = ctk.CTkLabel(contenido, text="", text_color=COLORES["error"], font=("Segoe UI", 11))
+            lbl_error.pack(anchor="w", pady=(6, 0))
+
+            def _con_codigo():
+                usuario = entrada_usuario.get().strip()
+                if not usuario:
+                    lbl_error.configure(text="Escribe tu usuario.")
+                    return
+                estado["usuario"] = usuario
+                _pantalla_codigo()
+
+            def _con_correo():
+                usuario = entrada_usuario.get().strip()
+                if not usuario:
+                    lbl_error.configure(text="Escribe tu usuario.")
+                    return
+                estado["usuario"] = usuario
+                try:
+                    correo_destino = auth_controller.solicitar_codigo_recuperacion_por_correo(usuario)
+                except ValueError:
+                    _mostrar_contacto()
+                    return
+                _pantalla_codigo_correo(correo_destino)
+
+            ctk.CTkButton(
+                contenido, text="Tengo un código de recuperación", height=34,
+                command=_con_codigo, **ESTILO_BOTON_PRIMARIO,
+            ).pack(fill="x", pady=(14, 8))
+            ctk.CTkButton(
+                contenido, text="Enviarme un código por correo", height=34,
+                command=_con_correo, **ESTILO_BOTON_SECUNDARIO,
+            ).pack(fill="x")
+            _ajustar_alto()
+
+        def _pantalla_restablecer(titulo, mensaje, on_confirmar):
+            _limpiar()
+            ctk.CTkLabel(
+                contenido, text=titulo, text_color=c["texto"], font=("Segoe UI", 13, "bold"),
+                wraplength=300, justify="left",
+            ).pack(anchor="w", pady=(0, 4))
+            if mensaje:
+                ctk.CTkLabel(
+                    contenido, text=mensaje, text_color=c["subtext"], font=("Segoe UI", 11),
+                    wraplength=300, justify="left",
+                ).pack(anchor="w", pady=(0, 10))
+
+            ctk.CTkLabel(contenido, text="Código", anchor="w",
+                         text_color=c["texto"], font=("Segoe UI", 12)).pack(fill="x", pady=(4, 2))
+            entrada_codigo = ctk.CTkEntry(contenido)
+            entrada_codigo.pack(fill="x")
+
+            ctk.CTkLabel(contenido, text="Nueva contraseña", anchor="w",
+                         text_color=c["texto"], font=("Segoe UI", 12)).pack(fill="x", pady=(8, 2))
+            frame_nueva, entrada_nueva = crear_campo_password(contenido, c)
+            frame_nueva.pack(fill="x")
+
+            ctk.CTkLabel(contenido, text="Confirmar nueva contraseña", anchor="w",
+                         text_color=c["texto"], font=("Segoe UI", 12)).pack(fill="x", pady=(8, 2))
+            frame_confirmar, entrada_confirmar = crear_campo_password(contenido, c)
+            frame_confirmar.pack(fill="x")
+
+            lbl_error = ctk.CTkLabel(contenido, text="", text_color=COLORES["error"], font=("Segoe UI", 11))
+            lbl_error.pack(anchor="w", pady=(6, 0))
+
+            def _confirmar():
+                try:
+                    on_confirmar(entrada_codigo.get().strip(), entrada_nueva.get(), entrada_confirmar.get())
+                except _CambiarAContacto:
+                    _mostrar_contacto()
+                    return
+                except ValueError as error:
+                    lbl_error.configure(text=str(error))
+                    return
+                messagebox.showinfo("Listo", "Contraseña restablecida. Ya puedes iniciar sesión.")
+                ventana.destroy()
+
+            ctk.CTkButton(
+                contenido, text="Restablecer contraseña", command=_confirmar, **ESTILO_BOTON_PRIMARIO,
+            ).pack(fill="x", pady=(12, 0))
+            _ajustar_alto()
+
+        def _pantalla_codigo():
+            def _on_confirmar(codigo, nueva, confirmar):
+                try:
+                    auth_controller.recuperar_con_codigo(estado["usuario"], codigo, nueva, confirmar)
+                except ValueError as error:
+                    if "no tiene un código de recuperación configurado" in str(error):
+                        raise _CambiarAContacto() from None
+                    raise
+            _pantalla_restablecer(
+                "Código de recuperación",
+                "El que generaste (o te dio el administrador) desde Configuración.",
+                _on_confirmar,
+            )
+
+        def _pantalla_codigo_correo(correo_destino):
+            def _on_confirmar(codigo, nueva, confirmar):
+                auth_controller.recuperar_con_codigo_correo(estado["usuario"], codigo, nueva, confirmar)
+            _pantalla_restablecer(
+                "Revisa tu correo",
+                f"Enviamos un código a {correo_destino}. Vence en 30 minutos.",
+                _on_confirmar,
+            )
+
+        _pantalla_inicial()
 
     def _on_login(self):
         if self._login_en_curso:

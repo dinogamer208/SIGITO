@@ -171,3 +171,39 @@ def listar_vencidas() -> list[Asignacion]:
     conexion.close()
 
     return [a for a in listar_asignaciones_activas() if a.esta_vencida()]
+
+
+def listar_vencidas_sin_aviso() -> list[dict]:
+    """
+    Préstamos vencidos a los que todavía no se les avisó (correo/toast) de
+    su atraso. Usado por utils/monitor.py cada 5 minutos: llamar primero a
+    listar_vencidas() para que el estado 'atrasado' esté al día.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT a.id, a.nombre_completo, a.seccion, a.anio, a.correo,
+               ar.codigo_inventario, ar.nombre AS articulo_nombre,
+               a.hora_estimada_devolucion
+        FROM asignaciones a
+        JOIN articulos ar ON ar.id = a.articulo_id
+        WHERE a.hora_entrada_real IS NULL
+          AND a.hora_estimada_devolucion < NOW()
+          AND a.correo_aviso_enviado = FALSE
+    """)
+    filas = cursor.fetchall()
+    cursor.close()
+    conexion.close()
+    return filas
+
+
+def marcar_aviso_enviado(asignacion_id: int) -> None:
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "UPDATE asignaciones SET correo_aviso_enviado = TRUE WHERE id = %s",
+        (asignacion_id,)
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()

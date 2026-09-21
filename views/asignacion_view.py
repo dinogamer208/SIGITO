@@ -22,6 +22,9 @@ from controllers.asignacion_controller import (
 )
 from controllers.inventario_controller import listar_articulos, buscar_articulo_por_codigo
 from controllers.auth_controller import listar_profesores
+from controllers.mantenimiento_controller import (
+    enviar_a_mantenimiento, marcar_regresado, listar_en_mantenimiento
+)
 from utils.validaciones import correo_valido
 from views.tema import COLORES, colores_dashboard, ESTILO_BOTON_PRIMARIO, ESTILO_BOTON_SECUNDARIO
 from views.componentes import (
@@ -37,6 +40,7 @@ class AsignacionView(ctk.CTkFrame):
 
     ANCHOS = (160, 70, 60, 130, 130, 90)
     ANCHOS_DEVUELTOS = (170, 180, 140, 140)
+    ANCHOS_MANTENIMIENTO = (200, 150, 200, 140)
     _COLORES_AVATAR = ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B",
                         "#EF4444", "#06B6D4", "#EC4899", "#6366F1"]
 
@@ -44,12 +48,15 @@ class AsignacionView(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
 
         self.usuario = usuario
+        self.es_admin = usuario is None or usuario.rol == "admin"
         self.c = colores_dashboard()
         self._miniaturas = {}
 
         self._construir_layout()
         self._cargar_asignaciones()
         self._cargar_devoluciones()
+        if self.es_admin:
+            self._cargar_mantenimientos()
 
     # ------------------------------------------------------------
     def _construir_layout(self):
@@ -69,6 +76,14 @@ class AsignacionView(ctk.CTkFrame):
             encabezado, text="+  Nuevo préstamo", width=170,
             command=self._on_nuevo_prestamo, **ESTILO_BOTON_PRIMARIO
         ).pack(side="right", anchor="e")
+
+        # Enviar a mantenimiento es solo para admin (saca equipo de
+        # circulación fuera del ciclo normal de préstamo/devolución).
+        if self.es_admin:
+            ctk.CTkButton(
+                encabezado, text="Enviar a mantenimiento", width=190,
+                command=self._on_enviar_mantenimiento, **ESTILO_BOTON_SECUNDARIO
+            ).pack(side="right", anchor="e", padx=(0, 10))
 
         self.fila_kpis = ctk.CTkFrame(contenedor, fg_color="transparent")
         self.fila_kpis.pack(fill="x", pady=(18, 16))
@@ -119,6 +134,34 @@ class AsignacionView(ctk.CTkFrame):
         )
         self.lista_devueltos.pack(fill="both", expand=True)
 
+        # Equipos en mantenimiento: solo el admin los envía y los ve.
+        if self.es_admin:
+            crear_encabezado(
+                contenedor, self.c,
+                "Equipos en mantenimiento",
+                "Artículos fuera de circulación por reparación/servicio."
+            ).pack(fill="x", pady=(20, 0))
+
+            tarjeta_mantenimiento = crear_card(contenedor, self.c)
+            tarjeta_mantenimiento.pack(fill="both", expand=True, pady=(12, 0))
+
+            interior_mantenimiento = ctk.CTkFrame(tarjeta_mantenimiento, fg_color="transparent")
+            interior_mantenimiento.pack(fill="both", expand=True, padx=14, pady=14)
+
+            crear_encabezado_tabla(
+                interior_mantenimiento, self.c,
+                ["Artículo", "Enviado a", "Causa", "Regreso estimado"],
+                self.ANCHOS_MANTENIMIENTO
+            )
+
+            self.lista_mantenimiento = ctk.CTkScrollableFrame(
+                interior_mantenimiento, fg_color="transparent",
+                scrollbar_button_color=self.c["borde"],
+                scrollbar_button_hover_color=COLORES["dash_hover_claro"],
+                height=180,
+            )
+            self.lista_mantenimiento.pack(fill="both", expand=True)
+
     def _cargar_devoluciones(self):
         for hijo in self.lista_devueltos.winfo_children():
             hijo.destroy()
@@ -134,6 +177,41 @@ class AsignacionView(ctk.CTkFrame):
                 ],
                 self.ANCHOS_DEVUELTOS,
             )
+
+    def _cargar_mantenimientos(self):
+        for hijo in self.lista_mantenimiento.winfo_children():
+            hijo.destroy()
+
+        activos = listar_en_mantenimiento()
+        for m in activos:
+            crear_fila_tabla(
+                self.lista_mantenimiento, self.c,
+                [
+                    f"{m['articulo_nombre']} ({m['codigo_inventario']})",
+                    m["destino"] or "—",
+                    m["descripcion"] or "—",
+                    m["fecha_retorno_estimada"].strftime("%Y-%m-%d") if m["fecha_retorno_estimada"] else "—",
+                ],
+                self.ANCHOS_MANTENIMIENTO,
+                acciones=[
+                    ("Regresó", lambda id_=m["id"]: self._on_marcar_regresado(id_)),
+                ],
+            )
+
+        if not activos:
+            ctk.CTkLabel(self.lista_mantenimiento, text="No hay equipos en mantenimiento.",
+                         text_color=self.c["subtext"], font=("Segoe UI", 12)).pack(pady=20)
+
+    def _on_marcar_regresado(self, mantenimiento_id):
+        if not messagebox.askyesno("Confirmar", "¿Marcar este equipo como regresado de mantenimiento?"):
+            return
+        usuario_id = self.usuario.id if self.usuario else None
+        try:
+            marcar_regresado(mantenimiento_id, usuario_id)
+        except ValueError as error:
+            messagebox.showerror("Error", str(error))
+            return
+        self._cargar_mantenimientos()
 
     def _actualizar_kpis(self, asignaciones):
         for hijo in self.fila_kpis.winfo_children():
@@ -563,6 +641,182 @@ class AsignacionView(ctk.CTkFrame):
         # Ajusta la ventana al tamaño real que pide el contenido (evita
         # que el calendario u otro campo queden cortados sin scroll) y
         # respeta un ancho mínimo para que el modal quede cuadrado/ancho.
+        ventana.update_idletasks()
+        alto = tarjeta.winfo_reqheight() + 32
+        ancho = max(760, tarjeta.winfo_reqwidth() + 32, alto + 40)
+        ventana.geometry(f"{ancho}x{alto}")
+
+    # ------------------------------------------------------------
+    # FORMULARIO — enviar a mantenimiento (solo admin)
+    # ------------------------------------------------------------
+    def _on_enviar_mantenimiento(self):
+        articulos_disponibles = [
+            a for a in listar_articulos(estado_disponibilidad="disponible")
+            if a.cantidad_disponible > 0
+        ]
+        if not articulos_disponibles:
+            messagebox.showwarning("Aviso", "No hay artículos disponibles para enviar a mantenimiento.")
+            return
+
+        ventana = ctk.CTkToplevel(self)
+        ventana.title("Enviar a mantenimiento")
+        ventana.geometry("720x620")
+        ventana.minsize(560, 520)
+        ventana.configure(fg_color=self.c["fondo"])
+        ventana.transient(self)
+        ventana.grab_set()
+
+        tarjeta = crear_card(ventana, self.c)
+        tarjeta.pack(fill="both", expand=True, padx=16, pady=16)
+
+        interior = ctk.CTkFrame(tarjeta, fg_color="transparent")
+        interior.pack(fill="both", expand=True, padx=16, pady=16)
+
+        interior.grid_columnconfigure(0, weight=1, uniform="col", minsize=300)
+        interior.grid_columnconfigure(1, weight=1, uniform="col", minsize=300)
+
+        mapa_articulos = {
+            f"{a.codigo_inventario} - {a.nombre} ({a.cantidad_disponible} disp.)": a.id
+            for a in articulos_disponibles
+        }
+
+        campos = {}
+
+        def _celda(fila, columna, colspan=1):
+            frame = ctk.CTkFrame(interior, fg_color="transparent")
+            frame.grid(row=fila, column=columna, columnspan=colspan, sticky="nsew", padx=6, pady=6)
+            return frame
+
+        def _campo_entry(fila, columna, etiqueta, valor_inicial="", colspan=1):
+            frame = _celda(fila, columna, colspan)
+            ctk.CTkLabel(frame, text=etiqueta, anchor="w", text_color=self.c["subtext"],
+                         font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
+            entrada = ctk.CTkEntry(frame)
+            entrada.insert(0, valor_inicial)
+            entrada.pack(fill="x")
+            campos[etiqueta] = entrada
+            return entrada
+
+        # Fila 0: Artículo (+ escaneo de código de barras)
+        frame_articulo = _celda(0, 0, colspan=2)
+        ctk.CTkLabel(frame_articulo, text="Equipo", anchor="w", text_color=self.c["subtext"],
+                     font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
+
+        combo_articulo = ctk.CTkComboBox(
+            frame_articulo, values=list(mapa_articulos.keys()), state="readonly",
+        )
+        combo_articulo.pack(fill="x")
+
+        entrada_escaneo = ctk.CTkEntry(
+            frame_articulo, placeholder_text="Escanear código de barras del artículo...",
+        )
+        entrada_escaneo.pack(fill="x", pady=(6, 0))
+
+        def _on_escaneo_articulo(event=None):
+            codigo = entrada_escaneo.get().strip()
+            entrada_escaneo.delete(0, "end")
+            if not codigo:
+                return
+            articulo = buscar_articulo_por_codigo(codigo)
+            clave = next(
+                (k for k, v in mapa_articulos.items() if articulo and v == articulo.id), None
+            )
+            if not clave:
+                messagebox.showwarning(
+                    "Aviso",
+                    f"No se encontró un artículo disponible con el código «{codigo}»."
+                )
+                return
+            combo_articulo.set(clave)
+
+        entrada_escaneo.bind("<Return>", _on_escaneo_articulo)
+
+        # Fila 1: Enviado a (destino) | Técnico encargado (opcional)
+        _campo_entry(1, 0, "Enviado a (taller, proveedor...)")
+        _campo_entry(1, 1, "Técnico encargado (opcional)")
+
+        # Fila 2: Causa (ancho completo)
+        _campo_entry(2, 0, "Causa del mantenimiento", colspan=2)
+
+        # Fila 3: Costo estimado (opcional)
+        _campo_entry(3, 0, "Costo estimado (opcional)")
+
+        # Fila 4: Fecha de envío | Fecha estipulada de devolución
+        frame_fecha_envio = _celda(4, 0)
+        ctk.CTkLabel(frame_fecha_envio, text="Fecha de envío", anchor="w",
+                     text_color=self.c["subtext"], font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
+        calendario_envio = Calendar(
+            frame_fecha_envio, selectmode="day", date_pattern="yyyy-mm-dd",
+            maxdate=date.today(), showweeknumbers=False, font=("Segoe UI", 11),
+            background=self.c["card_inner"], foreground=self.c["texto"],
+            headersbackground=self.c["card_inner"], headersforeground=self.c["texto"],
+            normalbackground=self.c["card"], normalforeground=self.c["texto"],
+            weekendbackground=self.c["card"], weekendforeground=self.c["texto"],
+            othermonthbackground=self.c["card_inner"], othermonthforeground=self.c["subtext"],
+            selectbackground=COLORES["azul_primario"], selectforeground="#FFFFFF",
+            bordercolor=self.c["borde"], borderwidth=1,
+        )
+        calendario_envio.pack(fill="x", ipady=2)
+
+        frame_fecha_regreso = _celda(4, 1)
+        ctk.CTkLabel(frame_fecha_regreso, text="Regreso estipulado", anchor="w",
+                     text_color=self.c["subtext"], font=("Segoe UI", 11)).pack(fill="x", pady=(0, 2))
+        mañana = date.today() + timedelta(days=1)
+        calendario_regreso = Calendar(
+            frame_fecha_regreso, selectmode="day", date_pattern="yyyy-mm-dd",
+            year=mañana.year, month=mañana.month, day=mañana.day,
+            mindate=date.today(), showweeknumbers=False, font=("Segoe UI", 11),
+            background=self.c["card_inner"], foreground=self.c["texto"],
+            headersbackground=self.c["card_inner"], headersforeground=self.c["texto"],
+            normalbackground=self.c["card"], normalforeground=self.c["texto"],
+            weekendbackground=self.c["card"], weekendforeground=self.c["texto"],
+            othermonthbackground=self.c["card_inner"], othermonthforeground=self.c["subtext"],
+            selectbackground=COLORES["azul_primario"], selectforeground="#FFFFFF",
+            bordercolor=self.c["borde"], borderwidth=1,
+        )
+        calendario_regreso.pack(fill="x", ipady=2)
+
+        def _guardar_mantenimiento():
+            if not combo_articulo.get():
+                messagebox.showerror("Error", "Selecciona (o escanea) el equipo a enviar.")
+                return
+            destino = campos["Enviado a (taller, proveedor...)"].get().strip()
+            causa = campos["Causa del mantenimiento"].get().strip()
+            if not destino or not causa:
+                messagebox.showerror("Error", "«Enviado a» y «Causa» son obligatorios.")
+                return
+
+            costo_texto = campos["Costo estimado (opcional)"].get().strip()
+            costo = None
+            if costo_texto:
+                try:
+                    costo = float(costo_texto.replace(",", ""))
+                except ValueError:
+                    messagebox.showerror("Error", "El costo estimado debe ser un número.")
+                    return
+
+            try:
+                enviar_a_mantenimiento(
+                    articulo_id=mapa_articulos[combo_articulo.get()],
+                    fecha=calendario_envio.get_date(),
+                    destino=destino,
+                    causa=causa,
+                    fecha_retorno_estimada=calendario_regreso.get_date(),
+                    tecnico=campos["Técnico encargado (opcional)"].get().strip() or None,
+                    costo=costo,
+                    usuario_id=self.usuario.id if self.usuario else None,
+                )
+            except ValueError as error:
+                messagebox.showerror("Error", str(error))
+                return
+
+            ventana.destroy()
+            self._cargar_mantenimientos()
+
+        frame_boton = _celda(5, 0, colspan=2)
+        ctk.CTkButton(frame_boton, text="Enviar a mantenimiento", command=_guardar_mantenimiento,
+                      **ESTILO_BOTON_PRIMARIO).pack(fill="x", pady=(6, 0))
+
         ventana.update_idletasks()
         alto = tarjeta.winfo_reqheight() + 32
         ancho = max(760, tarjeta.winfo_reqwidth() + 32, alto + 40)

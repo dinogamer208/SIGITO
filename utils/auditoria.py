@@ -49,6 +49,53 @@ def listar_historial_por_articulo(articulo_id):
     return filas
 
 
+def listar_historial(limite=300, tipo_movimiento=None, filtro_texto=None):
+    """
+    Historial completo del sistema para la pantalla de auditoría (a
+    diferencia de listar_historial_reciente, que es solo para el panel
+    resumido del dashboard). Incluye el código/nombre del artículo y el
+    nombre de usuario, y admite filtrar por tipo de movimiento y/o texto
+    libre (busca en el detalle, el artículo y el usuario).
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+
+    condiciones = []
+    parametros = []
+
+    if tipo_movimiento:
+        condiciones.append("h.tipo_movimiento = %s")
+        parametros.append(tipo_movimiento)
+
+    if filtro_texto:
+        condiciones.append(
+            "(h.detalle LIKE %s OR ar.nombre LIKE %s OR ar.codigo_inventario LIKE %s "
+            "OR u.nombre LIKE %s)"
+        )
+        comodin = f"%{filtro_texto}%"
+        parametros += [comodin, comodin, comodin, comodin]
+
+    where = f"WHERE {' AND '.join(condiciones)}" if condiciones else ""
+    parametros.append(limite)
+
+    cursor.execute(f"""
+        SELECT h.id, h.tipo_movimiento, h.fecha, h.detalle,
+               ar.codigo_inventario, ar.nombre AS articulo_nombre,
+               u.nombre AS usuario_nombre
+        FROM historial_movimientos h
+        LEFT JOIN articulos ar ON ar.id = h.articulo_id
+        LEFT JOIN usuarios u ON u.id = h.usuario_id
+        {where}
+        ORDER BY h.fecha DESC
+        LIMIT %s
+    """, tuple(parametros))
+
+    filas = cursor.fetchall()
+    cursor.close()
+    conexion.close()
+    return filas
+
+
 def listar_historial_reciente(limite=10):
     """
     Últimos movimientos de todo el sistema (para el panel del dashboard),

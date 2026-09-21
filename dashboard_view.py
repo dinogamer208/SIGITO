@@ -32,6 +32,7 @@ class Dashboard(ctk.CTkToplevel):
         super().__init__(master)
 
         self.usuario = usuario
+        self.es_admin = usuario is None or usuario.rol == "admin"
         self.on_logout = on_logout
         self._vista_actual = "dashboard"
         self._after_paneles = None   # id del after() que arma el grid 2x2
@@ -192,28 +193,35 @@ class Dashboard(ctk.CTkToplevel):
         ctk.CTkFrame(self.sidebar, height=1,
                      fg_color=self.COLOR_BORDER).pack(fill="x", padx=16, pady=(0, 16))
 
-        # 6 botones de navegación acordados con el equipo
+        # Un usuario con rol 'limitado' no ve Historial ni Usuarios en el
+        # sidebar (solo el admin administra profesores y audita el sistema).
         self.boton_dashboard    = self.crear_boton_sidebar("dashboard.png",    "Dashboard")
         self.boton_inventario   = self.crear_boton_sidebar("inventario.png",   "Inventario")
         self.boton_asignaciones = self.crear_boton_sidebar("asignaciones.png", "Asignaciones")
         self.boton_reportes     = self.crear_boton_sidebar("reportes.png",     "Reportes")
-        self.boton_usuarios     = self.crear_boton_sidebar("usuarios.png",     "Usuarios")
-        self.boton_config       = self.crear_boton_sidebar("configuracion.png","Configuración")
 
         self._botones_nav = {
             "dashboard":    self.boton_dashboard,
             "inventario":   self.boton_inventario,
             "asignaciones": self.boton_asignaciones,
             "reportes":     self.boton_reportes,
-            "usuarios":     self.boton_usuarios,
-            "config":       self.boton_config,
         }
 
         self.boton_dashboard.configure(command=lambda: self._mostrar_vista("dashboard"))
         self.boton_inventario.configure(command=lambda: self._mostrar_vista("inventario"))
         self.boton_asignaciones.configure(command=lambda: self._mostrar_vista("asignaciones"))
         self.boton_reportes.configure(command=lambda: self._mostrar_vista("reportes"))
-        self.boton_usuarios.configure(command=lambda: self._mostrar_vista("usuarios"))
+
+        if self.es_admin:
+            self.boton_historial = self.crear_boton_sidebar("historial.png", "Historial")
+            self.boton_usuarios  = self.crear_boton_sidebar("usuarios.png",  "Usuarios")
+            self.boton_historial.configure(command=lambda: self._mostrar_vista("historial"))
+            self.boton_usuarios.configure(command=lambda: self._mostrar_vista("usuarios"))
+            self._botones_nav["historial"] = self.boton_historial
+            self._botones_nav["usuarios"] = self.boton_usuarios
+
+        self.boton_config = self.crear_boton_sidebar("configuracion.png", "Configuración")
+        self._botones_nav["config"] = self.boton_config
         self.boton_config.configure(command=lambda: self._mostrar_vista("config"))
         self._resaltar_boton(self._vista_actual)
 
@@ -324,14 +332,17 @@ class Dashboard(ctk.CTkToplevel):
             self.crear_header(self.content)
         elif nombre == "inventario":
             from views.inventario_view import InventarioView
-            InventarioView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+            InventarioView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
         elif nombre == "asignaciones":
             from views.asignacion_view import AsignacionView
             AsignacionView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
         elif nombre == "reportes":
             from views.reportes_view import ReportesView
-            ReportesView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
-        elif nombre == "usuarios":
+            ReportesView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "historial" and self.es_admin:
+            from views.historial_view import HistorialView
+            HistorialView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "usuarios" and self.es_admin:
             from views.usuarios_view import UsuariosView
             UsuariosView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
         elif nombre == "config":
@@ -339,6 +350,9 @@ class Dashboard(ctk.CTkToplevel):
             ConfigView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
 
     def _cerrar_sesion(self):
+        from utils import monitor, respaldo
+        monitor.detener()
+        respaldo.detener()
         auth_controller.cerrar_sesion()
         callback = self.on_logout
         self.destroy()
@@ -346,6 +360,9 @@ class Dashboard(ctk.CTkToplevel):
             callback()
 
     def _cerrar_aplicacion(self):
+        from utils import monitor, respaldo
+        monitor.detener()
+        respaldo.detener()
         self.master.destroy()
 
     # ==========================================================

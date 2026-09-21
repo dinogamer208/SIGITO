@@ -7,6 +7,9 @@ layout con los colores de views/tema.py y los componentes compartidos
 de views/componentes.py (tarjetas KPI, badges, tabla).
 """
 
+import os
+import tempfile
+
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
@@ -20,9 +23,11 @@ class ReportesView(ctk.CTkFrame):
 
     ANCHOS = (110, 220, 200, 170)
 
-    def __init__(self, master):
+    def __init__(self, master, usuario=None):
         super().__init__(master, fg_color="transparent")
 
+        self.usuario = usuario
+        self.es_admin = usuario is None or usuario.rol == "admin"
         self.c = colores_dashboard()
         self._datos_actuales = []
 
@@ -48,15 +53,22 @@ class ReportesView(ctk.CTkFrame):
 
         ctk.CTkButton(botones, text="Actualizar", width=110,
                       command=self._cargar_resumen, **ESTILO_BOTON_SECUNDARIO).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(botones, text="Exportar CSV", width=120,
-                      command=lambda: self._exportar(exportar_csv, ".csv"),
-                      **ESTILO_BOTON_SECUNDARIO).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(botones, text="Exportar Excel", width=130,
-                      command=lambda: self._exportar(exportar_excel, ".xlsx"),
-                      **ESTILO_BOTON_PRIMARIO).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(botones, text="Exportar PDF", width=120,
-                      command=lambda: self._exportar(exportar_pdf, ".pdf"),
-                      **ESTILO_BOTON_PRIMARIO).pack(side="left")
+
+        if self.es_admin:
+            ctk.CTkButton(botones, text="Exportar CSV", width=120,
+                          command=lambda: self._exportar(exportar_csv, ".csv"),
+                          **ESTILO_BOTON_SECUNDARIO).pack(side="left", padx=(0, 8))
+            ctk.CTkButton(botones, text="Exportar Excel", width=130,
+                          command=lambda: self._exportar(exportar_excel, ".xlsx"),
+                          **ESTILO_BOTON_PRIMARIO).pack(side="left", padx=(0, 8))
+            ctk.CTkButton(botones, text="Exportar PDF", width=120,
+                          command=lambda: self._exportar(exportar_pdf, ".pdf"),
+                          **ESTILO_BOTON_PRIMARIO).pack(side="left")
+        else:
+            # Un usuario 'limitado' no puede descargar/exportar nada: solo
+            # puede abrir el PDF para verlo, sin diálogo de "guardar como".
+            ctk.CTkButton(botones, text="Ver PDF", width=120,
+                          command=self._ver_pdf, **ESTILO_BOTON_PRIMARIO).pack(side="left")
 
         self.fila_kpis = ctk.CTkFrame(contenedor, fg_color="transparent")
         self.fila_kpis.pack(fill="x", pady=(18, 16))
@@ -140,3 +152,18 @@ class ReportesView(ctk.CTkFrame):
             messagebox.showinfo("Éxito", f"Reporte exportado a:\n{ruta}")
         except Exception as error:
             messagebox.showerror("Error", f"No se pudo exportar:\n{error}")
+
+    def _ver_pdf(self):
+        """Para el rol 'limitado': genera el PDF en un archivo temporal y
+        lo abre con el visor de PDF de Windows, sin pasar por un diálogo
+        de "guardar como" (no es una descarga/exportación)."""
+        if not self._datos_actuales:
+            messagebox.showwarning("Aviso", "No hay préstamos vencidos para mostrar.")
+            return
+
+        ruta_temporal = os.path.join(tempfile.gettempdir(), "sigito_reporte_vencidos.pdf")
+        try:
+            exportar_pdf(self._datos_actuales, ruta_temporal)
+            os.startfile(ruta_temporal)
+        except Exception as error:
+            messagebox.showerror("Error", f"No se pudo mostrar el PDF:\n{error}")

@@ -55,10 +55,16 @@ CREATE TABLE usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
     usuario VARCHAR(50) NOT NULL UNIQUE,
+    correo VARCHAR(150) NULL,
     password_hash VARCHAR(255) NOT NULL,
-    rol ENUM('admin') DEFAULT 'admin',
+    rol ENUM('admin', 'limitado') DEFAULT 'admin',
     activo BOOLEAN DEFAULT TRUE,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    recovery_code_hash VARCHAR(255) NULL,
+    recovery_email_code_hash VARCHAR(255) NULL,
+    recovery_email_code_expira DATETIME NULL,
+    recovery_intentos_fallidos INT NOT NULL DEFAULT 0,
+    recovery_bloqueado_hasta DATETIME NULL
 );
 
 -- ---------------------------------------------------------
@@ -124,6 +130,9 @@ CREATE TABLE mantenimientos (
     articulo_id INT NOT NULL,
     fecha DATE NOT NULL,
     descripcion TEXT,
+    destino VARCHAR(150),
+    fecha_retorno_estimada DATE,
+    estado ENUM('en_mantenimiento', 'regresado') DEFAULT 'en_mantenimiento',
     costo DECIMAL(10,2),
     tecnico VARCHAR(150),
     FOREIGN KEY (articulo_id) REFERENCES articulos(id)
@@ -160,7 +169,10 @@ INSERT INTO control_versiones (nombre_migracion) VALUES
     ('001_esquema_inicial.sql'),
     ('002_configuracion.sql'),
     ('003_foto_prestamo.sql'),
-    ('004_stock.sql');
+    ('004_stock.sql'),
+    ('005_roles_y_mantenimiento.sql'),
+    ('006_recuperacion_cuenta.sql'),
+    ('007_limite_intentos_recuperacion.sql');
 
 -- =========================================================
 -- NOTA: Ya no se crea un usuario de MySQL separado (sigito_app)

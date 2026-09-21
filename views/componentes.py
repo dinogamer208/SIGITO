@@ -171,6 +171,37 @@ def crear_kpi_card(padre, colores, numero, titulo, color_acento):
     return contenedor
 
 
+def crear_campo_password(padre, colores, **kwargs_entry):
+    """
+    Campo de contraseña (CTkEntry con show="*") con un botón "Ver" al
+    lado para mostrar/ocultar lo que se está escribiendo, sin depender
+    de otra librería. Devuelve (frame, entry): empacar `frame` con
+    pack(fill="x") y usar `entry` para .get()/.delete()/.bind() como
+    cualquier CTkEntry normal.
+    """
+    frame = ctk.CTkFrame(padre, fg_color="transparent")
+
+    entry = ctk.CTkEntry(frame, show="*", **kwargs_entry)
+    entry.pack(side="left", fill="x", expand=True)
+
+    estado = {"visible": False}
+
+    def _toggle():
+        estado["visible"] = not estado["visible"]
+        entry.configure(show="" if estado["visible"] else "*")
+        boton.configure(text="Ocultar" if estado["visible"] else "Ver")
+
+    boton = ctk.CTkButton(
+        frame, text="Ver", width=56, height=kwargs_entry.get("height", 28),
+        command=_toggle, fg_color="transparent", border_width=1,
+        border_color=colores["borde"], text_color=colores["subtext"],
+        hover_color=colores["card_inner"], font=("Segoe UI", 11),
+    )
+    boton.pack(side="left", padx=(6, 0))
+
+    return frame, entry
+
+
 def crear_badge(padre, texto, fondo, texto_color):
     """Chip redondeado para estados (Disponible, Prestado, Vencido...)."""
     return ctk.CTkLabel(

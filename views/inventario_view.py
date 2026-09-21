@@ -19,7 +19,7 @@ from PIL import Image
 
 from controllers.inventario_controller import (
     listar_articulos, agregar_articulo, editar_articulo, dar_de_baja, eliminar_articulo,
-    listar_categorias, agregar_categoria, editar_categoria, eliminar_categoria,
+    revertir_baja, listar_categorias, agregar_categoria, editar_categoria, eliminar_categoria,
     generar_etiqueta, buscar_articulo_por_codigo
 )
 from utils.validaciones import campo_no_vacio
@@ -39,9 +39,11 @@ class InventarioView(ctk.CTkFrame):
     ANCHOS = (50, 80, 150, 100, 90, 70, 100)
     TAMANO_PAGINA = 10
 
-    def __init__(self, master):
+    def __init__(self, master, usuario=None):
         super().__init__(master, fg_color="transparent")
 
+        self.usuario = usuario
+        self.es_admin = usuario is None or usuario.rol == "admin"
         self.c = colores_dashboard()
         self._miniaturas = {}
         self._articulos_filtrados = []
@@ -53,6 +55,13 @@ class InventarioView(ctk.CTkFrame):
 
     def _refrescar_categorias(self):
         self._categorias = {cat["nombre"]: cat["id"] for cat in listar_categorias()}
+        if hasattr(self, "combo_filtro_categoria"):
+            seleccion_previa = self.combo_filtro_categoria.get()
+            valores = ["Todas las categorías"] + list(self._categorias.keys())
+            self.combo_filtro_categoria.configure(values=valores)
+            self.combo_filtro_categoria.set(
+                seleccion_previa if seleccion_previa in valores else "Todas las categorías"
+            )
 
     # ------------------------------------------------------------
     def _construir_layout(self):
@@ -68,15 +77,19 @@ class InventarioView(ctk.CTkFrame):
             "Control del ciclo de vida de todo el equipo tecnológico y ofimático."
         ).pack(side="left")
 
-        ctk.CTkButton(
-            encabezado, text="+  Nuevo artículo", width=160,
-            command=self._on_agregar, **ESTILO_BOTON_PRIMARIO
-        ).pack(side="right", anchor="e")
+        # Un usuario con rol 'limitado' solo puede ver el código de
+        # barras y dar/revertir de baja desde la tabla: no crear, editar,
+        # eliminar artículos ni tocar categorías.
+        if self.es_admin:
+            ctk.CTkButton(
+                encabezado, text="+  Nuevo artículo", width=160,
+                command=self._on_agregar, **ESTILO_BOTON_PRIMARIO
+            ).pack(side="right", anchor="e")
 
-        ctk.CTkButton(
-            encabezado, text="Categorías", width=120,
-            command=self._abrir_categorias, **ESTILO_BOTON_SECUNDARIO
-        ).pack(side="right", anchor="e", padx=(0, 10))
+            ctk.CTkButton(
+                encabezado, text="Categorías", width=120,
+                command=self._abrir_categorias, **ESTILO_BOTON_SECUNDARIO
+            ).pack(side="right", anchor="e", padx=(0, 10))
 
         self.fila_kpis = ctk.CTkFrame(contenedor, fg_color="transparent")
         self.fila_kpis.pack(fill="x", pady=(18, 16))
@@ -94,6 +107,22 @@ class InventarioView(ctk.CTkFrame):
         self.entrada_busqueda.pack(side="left", fill="x", expand=True)
         self.entrada_busqueda.bind("<Return>", self._on_escaneo)
         self.entrada_busqueda.bind("<KeyRelease>", self._on_busqueda_cambio)
+
+        self.combo_filtro_categoria = ctk.CTkComboBox(
+            fila_busqueda, width=170, state="readonly",
+            values=["Todas las categorías"] + list(self._categorias.keys()),
+            command=lambda _v: self._cargar_articulos(),
+        )
+        self.combo_filtro_categoria.set("Todas las categorías")
+        self.combo_filtro_categoria.pack(side="left", padx=(10, 0))
+
+        self.combo_filtro_estado = ctk.CTkComboBox(
+            fila_busqueda, width=150, state="readonly",
+            values=["Todos los estados", "Disponible", "Agotado", "De baja"],
+            command=lambda _v: self._cargar_articulos(),
+        )
+        self.combo_filtro_estado.set("Todos los estados")
+        self.combo_filtro_estado.pack(side="left", padx=(10, 0))
 
         ctk.CTkButton(
             fila_busqueda, text="Limpiar", width=90,
@@ -181,7 +210,21 @@ class InventarioView(ctk.CTkFrame):
                 self._miniaturas[ruta] = None
         return self._miniaturas[ruta]
 
+    @staticmethod
+    def _estado_mostrado(articulo):
+        # "Agotado" (sin unidades libres) es un estado derivado del stock,
+        # no algo guardado en la BD: solo existen 'disponible' y 'de_baja'
+        # en la columna estado_disponibilidad.
+        if articulo.estado_disponibilidad == "de_baja":
+            return "de_baja"
+        if articulo.cantidad_disponible <= 0:
+            return "agotado"
+        return "disponible"
+
     def _cargar_articulos(self, filtro_texto=None):
+        if filtro_texto is None and hasattr(self, "entrada_busqueda"):
+            filtro_texto = self.entrada_busqueda.get()
+
         articulos = listar_articulos()
 
         if filtro_texto:
@@ -190,6 +233,17 @@ class InventarioView(ctk.CTkFrame):
                 a for a in articulos
                 if filtro in a.codigo_inventario.lower() or filtro in a.nombre.lower()
             ]
+
+        categoria_filtro = self.combo_filtro_categoria.get()
+        if categoria_filtro != "Todas las categorías":
+            id_categoria_filtro = self._categorias.get(categoria_filtro)
+            articulos = [a for a in articulos if a.categoria_id == id_categoria_filtro]
+
+        estado_filtro = {
+            "Disponible": "disponible", "Agotado": "agotado", "De baja": "de_baja",
+        }.get(self.combo_filtro_estado.get())
+        if estado_filtro:
+            articulos = [a for a in articulos if self._estado_mostrado(a) == estado_filtro]
 
         self._articulos_filtrados = articulos
         self._pagina_actual = 0
@@ -245,15 +299,7 @@ class InventarioView(ctk.CTkFrame):
         )
 
         for a in articulos_pagina:
-            # "Agotado" (sin unidades libres) es un estado derivado del
-            # stock, no algo guardado en la BD: solo existen 'disponible'
-            # y 'de_baja' en la columna estado_disponibilidad.
-            if a.estado_disponibilidad == "de_baja":
-                estado_mostrado = "de_baja"
-            elif a.cantidad_disponible <= 0:
-                estado_mostrado = "agotado"
-            else:
-                estado_mostrado = "disponible"
+            estado_mostrado = self._estado_mostrado(a)
             fondo, texto_color = color_badge(estado_mostrado)
 
             def _celda_estado(celda, estado=estado_mostrado, fondo=fondo, texto_color=texto_color):
@@ -278,6 +324,21 @@ class InventarioView(ctk.CTkFrame):
                     )
                 etiqueta.place(relx=0, rely=0.5, anchor="w")
 
+            # Reactivar en vez de Baja cuando ya está de baja, para poder
+            # deshacer un clic equivocado sin tener que editar a mano.
+            if a.estado_disponibilidad == "de_baja":
+                accion_baja = ("Reactivar", lambda id_=a.id: self._on_revertir_baja(id_))
+            else:
+                accion_baja = ("Baja", lambda id_=a.id: self._on_dar_de_baja(id_))
+
+            acciones = [("Barras", lambda id_=a.id: self._on_generar_codigo_barras(id_)), accion_baja]
+            if self.es_admin:
+                acciones = [
+                    ("Editar", lambda id_=a.id: self._on_editar(id_)),
+                    *acciones,
+                    ("Eliminar", lambda id_=a.id: self._on_eliminar(id_)),
+                ]
+
             crear_fila_tabla(
                 self.lista, self.c,
                 [
@@ -290,12 +351,7 @@ class InventarioView(ctk.CTkFrame):
                     a.ubicacion_actual or "—",
                 ],
                 self.ANCHOS,
-                acciones=[
-                    ("Editar",   lambda id_=a.id: self._on_editar(id_)),
-                    ("Barras",   lambda id_=a.id: self._on_generar_codigo_barras(id_)),
-                    ("Baja",     lambda id_=a.id: self._on_dar_de_baja(id_)),
-                    ("Eliminar", lambda id_=a.id: self._on_eliminar(id_)),
-                ],
+                acciones=acciones,
             )
 
     def _on_editar(self, id_articulo):
@@ -304,8 +360,18 @@ class InventarioView(ctk.CTkFrame):
             self._abrir_formulario(articulo)
 
     def _on_dar_de_baja(self, id_articulo):
-        if messagebox.askyesno("Confirmar", "¿Dar de baja este artículo?"):
+        if messagebox.askyesno(
+            "Confirmar",
+            "¿Dar de baja este artículo?\n\n"
+            "Si fue un clic equivocado, se puede revertir después con "
+            "el botón «Reactivar» que aparece en su lugar."
+        ):
             dar_de_baja(id_articulo)
+            self._cargar_articulos()
+
+    def _on_revertir_baja(self, id_articulo):
+        if messagebox.askyesno("Confirmar", "¿Reactivar este artículo (revertir la baja)?"):
+            revertir_baja(id_articulo)
             self._cargar_articulos()
 
     def _on_eliminar(self, id_articulo):
@@ -353,6 +419,8 @@ class InventarioView(ctk.CTkFrame):
 
     def _on_limpiar_busqueda(self):
         self.entrada_busqueda.delete(0, "end")
+        self.combo_filtro_categoria.set("Todas las categorías")
+        self.combo_filtro_estado.set("Todos los estados")
         self._cargar_articulos()
 
     def _on_generar_codigo_barras(self, id_articulo):

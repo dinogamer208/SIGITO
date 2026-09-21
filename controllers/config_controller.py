@@ -84,6 +84,119 @@ def guardar_config(correo_remitente: str, correo_copia_admin: str,
     conexion.close()
 
 
+_CLAVES_RESPALDO = ("respaldo_automatico_activo", "respaldo_intervalo_horas")
+
+
+def obtener_ajuste_respaldo() -> dict:
+    """
+    Devuelve {"activo": bool, "intervalo_horas": int} para el respaldo
+    automático del inventario (utils/respaldo.py). Si nunca se guardó,
+    vuelve el default: desactivado, cada 24 horas.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT clave, valor FROM configuracion WHERE clave IN (%s, %s)",
+        _CLAVES_RESPALDO,
+    )
+    filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
+    cursor.close()
+    conexion.close()
+
+    try:
+        intervalo = int(filas.get("respaldo_intervalo_horas") or 24)
+    except ValueError:
+        intervalo = 24
+
+    return {
+        "activo": filas.get("respaldo_automatico_activo") == "true",
+        "intervalo_horas": max(1, intervalo),
+    }
+
+
+def guardar_ajuste_respaldo(activo: bool, intervalo_horas: int) -> None:
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.executemany(
+        "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+        [
+            ("respaldo_automatico_activo", "true" if activo else "false"),
+            ("respaldo_intervalo_horas", str(max(1, int(intervalo_horas)))),
+        ],
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+
+
+_CLAVES_SOPORTE = ("soporte_telefono", "soporte_coordinador", "soporte_correo")
+
+
+def obtener_contacto_soporte() -> dict:
+    """
+    Datos de contacto que se muestran a un usuario 'limitado' cuando no
+    tiene forma de recuperar su contraseña por sí solo (ver
+    Configuración > Recuperación de cuenta > Contacto de soporte).
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT clave, valor FROM configuracion WHERE clave IN (%s, %s, %s)",
+        _CLAVES_SOPORTE,
+    )
+    filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
+    cursor.close()
+    conexion.close()
+    return {clave: (filas.get(clave) or "") for clave in _CLAVES_SOPORTE}
+
+
+def guardar_contacto_soporte(telefono: str, coordinador: str, correo: str) -> None:
+    correo = (correo or "").strip()
+    if correo and not correo_valido(correo):
+        raise ValueError("El correo de soporte no tiene un formato válido.")
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.executemany(
+        "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+        [
+            ("soporte_telefono", (telefono or "").strip()),
+            ("soporte_coordinador", (coordinador or "").strip()),
+            ("soporte_correo", correo),
+        ],
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+
+
+def enviar_correo_codigo_recuperacion(destino: str, codigo: str) -> None:
+    """Envía el código temporal de recuperación de contraseña (ver
+    auth_controller.solicitar_codigo_recuperacion_por_correo)."""
+    cfg = obtener_config()
+    remitente = cfg["correo_remitente"]
+    password = cfg["smtp_app_password"]
+
+    if not remitente or not password:
+        raise ValueError("Falta configurar el correo remitente y/o la contraseña de aplicación.")
+
+    mensaje = EmailMessage()
+    mensaje["Subject"] = "SIGITO — Código para recuperar tu contraseña"
+    mensaje["From"] = remitente
+    mensaje["To"] = destino
+    mensaje.set_content(
+        f"Tu código para recuperar la contraseña de SIGITO es:\n\n{codigo}\n\n"
+        "Vence en 30 minutos. Si no lo pediste tú, ignora este correo."
+    )
+
+    contexto = ssl.create_default_context()
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=contexto, timeout=15) as servidor:
+        servidor.login(remitente, password)
+        servidor.send_message(mensaje)
+
+
 _TABLAS_A_BORRAR = (
     "historial_movimientos", "mantenimientos", "asignaciones",
     "articulos", "categorias", "profesores_autorizados", "configuracion",
@@ -151,3 +264,49 @@ def enviar_correo_prueba(destino: str | None = None) -> str:
         servidor.send_message(mensaje)
 
     return destino
+
+
+def enviar_correo_atraso(prestamo: dict) -> None:
+    """
+    Envía el aviso de atraso de un préstamo puntual (alumno + copia al
+    administrador si hay uno configurado). `prestamo` trae las llaves de
+    asignacion_controller.listar_vencidas_sin_aviso(): nombre_completo,
+    seccion, anio, correo, codigo_inventario, articulo_nombre,
+    hora_estimada_devolucion.
+
+    Lanza ValueError si no hay SMTP configurado, o la excepción de
+    smtplib si el envío falla; quien llame decide si eso detiene el
+    aviso (utils/monitor.py igual dispara la notificación nativa).
+    """
+    cfg = obtener_config()
+    remitente = cfg["correo_remitente"]
+    password = cfg["smtp_app_password"]
+
+    if not remitente or not password:
+        raise ValueError("Falta configurar el correo remitente y/o la contraseña de aplicación.")
+    if not correo_valido(prestamo.get("correo") or ""):
+        raise ValueError(f"El préstamo #{prestamo.get('id')} no tiene un correo válido.")
+
+    mensaje = EmailMessage()
+    mensaje["Subject"] = f"SIGITO — Préstamo atrasado: {prestamo['articulo_nombre']}"
+    mensaje["From"] = remitente
+    mensaje["To"] = prestamo["correo"]
+    if cfg["correo_copia_admin"]:
+        mensaje["Cc"] = cfg["correo_copia_admin"]
+
+    mensaje.set_content(
+        f"Hola {prestamo['nombre_completo']},\n\n"
+        f"El artículo \"{prestamo['articulo_nombre']}\" ({prestamo['codigo_inventario']}) "
+        f"que tienes prestado ({prestamo['seccion']} {prestamo['anio']}) debió devolverse "
+        f"el {prestamo['hora_estimada_devolucion']:%Y-%m-%d %H:%M} y todavía no se ha "
+        "registrado su devolución.\n\n"
+        "Por favor devuélvelo lo antes posible.\n\n"
+        "Este es un aviso automático de SIGITO."
+    )
+
+    destinatarios = [prestamo["correo"]] + ([cfg["correo_copia_admin"]] if cfg["correo_copia_admin"] else [])
+
+    contexto = ssl.create_default_context()
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=contexto, timeout=15) as servidor:
+        servidor.login(remitente, password)
+        servidor.send_message(mensaje, to_addrs=destinatarios)

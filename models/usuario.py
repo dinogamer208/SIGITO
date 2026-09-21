@@ -23,6 +23,7 @@ class Usuario:
     rol: str
     activo: bool
     fecha_creacion: datetime = None
+    correo: str = None
 
     @staticmethod
     def desde_fila(fila: dict) -> "Usuario":
@@ -36,4 +37,5 @@ class Usuario:
             rol=fila["rol"],
             activo=bool(fila["activo"]),
             fecha_creacion=fila.get("fecha_creacion"),
+            correo=fila.get("correo"),
         )

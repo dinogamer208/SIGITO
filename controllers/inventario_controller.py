@@ -192,6 +192,37 @@ def dar_de_baja(id_articulo):
     )
 
 # ---------------------------------------------------------
+# Revertir una baja (por si se apretó "Baja" sin querer, en vez de
+# otro botón) — reactiva el artículo y recalcula cuánto stock queda
+# realmente disponible (cantidad_total menos lo que sigue prestado).
+# ---------------------------------------------------------
+def revertir_baja(id_articulo):
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+
+    cursor.execute(
+        "SELECT COALESCE(SUM(cantidad), 0) FROM asignaciones "
+        "WHERE articulo_id = %s AND hora_entrada_real IS NULL",
+        (id_articulo,)
+    )
+    prestado = cursor.fetchone()[0]
+
+    cursor.execute(
+        "UPDATE articulos SET estado_disponibilidad = 'disponible', "
+        "cantidad_disponible = GREATEST(cantidad_total - %s, 0) WHERE id = %s",
+        (prestado, id_articulo)
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+
+    registrar_movimiento(
+        articulo_id=id_articulo,
+        tipo_movimiento="alta",
+        detalle=f"Artículo id={id_articulo} reactivado (se revirtió la baja)"
+    )
+
+# ---------------------------------------------------------
 # Eliminar un artículo por completo (distinto de dar_de_baja)
 # ---------------------------------------------------------
 def eliminar_articulo(id_articulo):
@@ -547,3 +578,43 @@ def listar_categorias():
     cursor.close()
     conexion.close()
     return filas
+
+
+def datos_para_exportar(incluir_foto_path=False):
+    """
+    Todos los artículos como lista de dicts lista para
+    utils/exportador.py (CSV/Excel/ZIP) — usada por "Descargar
+    inventario" en Configuración y por el respaldo automático
+    (utils/respaldo.py).
+
+    Con incluir_foto_path=True agrega la ruta absoluta local de la foto
+    de cada artículo (solo tiene sentido para el export en .zip con
+    fotos; un CSV/Excel plano no la incluye para no dejar rutas locales
+    que no sirven en otra PC).
+    """
+    import os
+
+    articulos = listar_articulos()
+    nombre_categoria = {cat["id"]: cat["nombre"] for cat in listar_categorias()}
+
+    datos = []
+    for a in articulos:
+        fila = {
+            "codigo_inventario": a.codigo_inventario,
+            "nombre": a.nombre,
+            "categoria": nombre_categoria.get(a.categoria_id, ""),
+            "marca": a.marca or "",
+            "modelo": a.modelo or "",
+            "serie": a.serie or "",
+            "estado_fisico": a.estado_fisico,
+            "estado_disponibilidad": a.estado_disponibilidad,
+            "cantidad_total": a.cantidad_total,
+            "cantidad_disponible": a.cantidad_disponible,
+            "ubicacion_actual": a.ubicacion_actual or "",
+            "fecha_adquisicion": a.fecha_adquisicion,
+        }
+        if incluir_foto_path:
+            fila["foto_path"] = os.path.abspath(a.foto_path) if a.foto_path else ""
+        datos.append(fila)
+
+    return datos

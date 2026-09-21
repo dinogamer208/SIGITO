@@ -67,6 +67,9 @@ def mostrar_login():
 
 def mostrar_dashboard(usuario):
     from dashboard_view import Dashboard
+    from utils import monitor, respaldo
+    monitor.iniciar()
+    respaldo.iniciar()
     Dashboard(_root, usuario=usuario, on_logout=mostrar_login)
 
 
