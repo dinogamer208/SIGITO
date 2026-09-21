@@ -18,7 +18,7 @@ from tkcalendar import Calendar
 from PIL import Image
 
 from controllers.inventario_controller import (
-    listar_articulos, agregar_articulo, editar_articulo, dar_de_baja,
+    listar_articulos, agregar_articulo, editar_articulo, dar_de_baja, eliminar_articulo,
     listar_categorias, agregar_categoria, editar_categoria, eliminar_categoria,
     generar_etiqueta, buscar_articulo_por_codigo
 )
@@ -37,12 +37,15 @@ EXTENSIONES_FOTO = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 class InventarioView(ctk.CTkFrame):
 
     ANCHOS = (50, 80, 150, 100, 90, 70, 100)
+    TAMANO_PAGINA = 10
 
     def __init__(self, master):
         super().__init__(master, fg_color="transparent")
 
         self.c = colores_dashboard()
         self._miniaturas = {}
+        self._articulos_filtrados = []
+        self._pagina_actual = 0
         self._refrescar_categorias()
 
         self._construir_layout()
@@ -116,6 +119,30 @@ class InventarioView(ctk.CTkFrame):
         )
         self.lista.pack(fill="both", expand=True)
 
+        # Paginación: en vez de renderizar cientos de filas a la vez (lo
+        # que laggeaba la vista), se muestran de a TAMANO_PAGINA y se
+        # avanza/retrocede entre bloques, como el listado de productos de
+        # una tienda en línea.
+        fila_paginacion = ctk.CTkFrame(interior, fg_color="transparent")
+        fila_paginacion.pack(fill="x", pady=(10, 0))
+
+        self.boton_pagina_anterior = ctk.CTkButton(
+            fila_paginacion, text="< Anterior", width=110,
+            command=self._pagina_anterior, **ESTILO_BOTON_SECUNDARIO
+        )
+        self.boton_pagina_anterior.pack(side="left")
+
+        self.etiqueta_paginacion = ctk.CTkLabel(
+            fila_paginacion, text="", text_color=self.c["subtext"], font=("Segoe UI", 12)
+        )
+        self.etiqueta_paginacion.pack(side="left", expand=True)
+
+        self.boton_pagina_siguiente = ctk.CTkButton(
+            fila_paginacion, text="Siguiente >", width=110,
+            command=self._pagina_siguiente, **ESTILO_BOTON_SECUNDARIO
+        )
+        self.boton_pagina_siguiente.pack(side="right")
+
     def _actualizar_kpis(self, articulos):
         for hijo in self.fila_kpis.winfo_children():
             hijo.destroy()
@@ -164,16 +191,60 @@ class InventarioView(ctk.CTkFrame):
                 if filtro in a.codigo_inventario.lower() or filtro in a.nombre.lower()
             ]
 
-        self._articulos = {a.id: a for a in articulos}
+        self._articulos_filtrados = articulos
+        self._pagina_actual = 0
 
         self._actualizar_kpis(articulos)
+        self._renderizar_pagina()
+
+    def _total_paginas(self):
+        total = len(self._articulos_filtrados)
+        if total == 0:
+            return 1
+        return (total - 1) // self.TAMANO_PAGINA + 1
+
+    def _pagina_anterior(self):
+        if self._pagina_actual > 0:
+            self._pagina_actual -= 1
+            self._renderizar_pagina()
+
+    def _pagina_siguiente(self):
+        if self._pagina_actual < self._total_paginas() - 1:
+            self._pagina_actual += 1
+            self._renderizar_pagina()
+
+    def _renderizar_pagina(self):
+        # Solo se construyen los widgets del bloque de 10 que corresponde
+        # a la página actual; el resto de artículos filtrados quedan en
+        # self._articulos_filtrados hasta que el usuario avance/retroceda.
+        inicio = self._pagina_actual * self.TAMANO_PAGINA
+        fin = inicio + self.TAMANO_PAGINA
+        articulos_pagina = self._articulos_filtrados[inicio:fin]
+
+        self._articulos = {a.id: a for a in articulos_pagina}
 
         for hijo in self.lista.winfo_children():
             hijo.destroy()
 
         nombre_categoria = {v: k for k, v in self._categorias.items()}
 
-        for a in articulos:
+        total = len(self._articulos_filtrados)
+        total_paginas = self._total_paginas()
+        if total == 0:
+            self.etiqueta_paginacion.configure(text="Sin artículos")
+        else:
+            self.etiqueta_paginacion.configure(
+                text=f"Mostrando {inicio + 1}–{min(fin, total)} de {total} "
+                     f"(página {self._pagina_actual + 1} de {total_paginas})"
+            )
+        self.boton_pagina_anterior.configure(
+            state="normal" if self._pagina_actual > 0 else "disabled"
+        )
+        self.boton_pagina_siguiente.configure(
+            state="normal" if self._pagina_actual < total_paginas - 1 else "disabled"
+        )
+
+        for a in articulos_pagina:
             # "Agotado" (sin unidades libres) es un estado derivado del
             # stock, no algo guardado en la BD: solo existen 'disponible'
             # y 'de_baja' en la columna estado_disponibilidad.
@@ -220,9 +291,10 @@ class InventarioView(ctk.CTkFrame):
                 ],
                 self.ANCHOS,
                 acciones=[
-                    ("Editar", lambda id_=a.id: self._on_editar(id_)),
-                    ("Barras", lambda id_=a.id: self._on_generar_codigo_barras(id_)),
-                    ("Baja",   lambda id_=a.id: self._on_dar_de_baja(id_)),
+                    ("Editar",   lambda id_=a.id: self._on_editar(id_)),
+                    ("Barras",   lambda id_=a.id: self._on_generar_codigo_barras(id_)),
+                    ("Baja",     lambda id_=a.id: self._on_dar_de_baja(id_)),
+                    ("Eliminar", lambda id_=a.id: self._on_eliminar(id_)),
                 ],
             )
 
@@ -235,6 +307,27 @@ class InventarioView(ctk.CTkFrame):
         if messagebox.askyesno("Confirmar", "¿Dar de baja este artículo?"):
             dar_de_baja(id_articulo)
             self._cargar_articulos()
+
+    def _on_eliminar(self, id_articulo):
+        articulo = self._articulos.get(id_articulo)
+        nombre = articulo.nombre if articulo else "este artículo"
+        if not messagebox.askyesno(
+            "Eliminar artículo",
+            f"¿Eliminar «{nombre}» de forma permanente?\n\n"
+            "Esto borra el artículo y todo su historial de la base de "
+            "datos. Esta acción NO se puede deshacer. Si solo quieres "
+            "sacarlo de circulación conservando su historial, usa "
+            "«Baja» en su lugar."
+        ):
+            return
+
+        try:
+            eliminar_articulo(id_articulo)
+        except ValueError as error:
+            messagebox.showerror("No se pudo eliminar", str(error))
+            return
+
+        self._cargar_articulos(self.entrada_busqueda.get())
 
     def _on_agregar(self):
         self._abrir_formulario()

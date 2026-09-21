@@ -119,6 +119,28 @@ def obtener_usuario_actual() -> Usuario | None:
     return _usuario_actual
 
 
+def verificar_password_usuario(usuario_id: int, password: str) -> bool:
+    """
+    Revalida la contraseña de un usuario ya autenticado, sin abrir una
+    sesión nueva. Se usa para reconfirmar identidad antes de una acción
+    destructiva (ej. borrar la base de datos desde Configuración).
+    """
+    conexion = obtener_conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT password_hash FROM usuarios WHERE id = %s AND activo = TRUE",
+            (usuario_id,),
+        )
+        fila = cursor.fetchone()
+        cursor.close()
+        if not fila:
+            return False
+        return verificar_password(password, fila["password_hash"])
+    finally:
+        conexion.close()
+
+
 # ---------------------------------------------------------
 # Profesores autorizados (catálogo, sin login propio)
 # Editable desde Gestión de Usuarios — ver decisiones del README.

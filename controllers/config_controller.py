@@ -84,6 +84,36 @@ def guardar_config(correo_remitente: str, correo_copia_admin: str,
     conexion.close()
 
 
+_TABLAS_A_BORRAR = (
+    "historial_movimientos", "mantenimientos", "asignaciones",
+    "articulos", "categorias", "profesores_autorizados", "configuracion",
+)
+
+
+def reiniciar_base_datos() -> None:
+    """
+    Borra TODOS los datos operativos: inventario, categorías, préstamos,
+    historial de movimientos, mantenimientos, profesores autorizados y
+    la configuración de correo. Deja las tablas vacías pero con su
+    estructura intacta.
+
+    Deliberadamente NO toca `usuarios`, para que quien ejecutó el
+    borrado pueda seguir iniciando sesión después.
+
+    Irreversible. La pantalla que llama a esto es responsable de pedir
+    la contraseña y una doble confirmación antes de invocarla.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+    for tabla in _TABLAS_A_BORRAR:
+        cursor.execute(f"TRUNCATE TABLE {tabla}")
+    cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+    conexion.commit()
+    cursor.close()
+    conexion.close()
+
+
 def enviar_correo_prueba(destino: str | None = None) -> str:
     """
     Envía un correo de prueba usando la configuración guardada para

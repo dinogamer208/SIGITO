@@ -16,6 +16,7 @@ Esqueleto:
 """
 
 import csv
+import os
 
 
 def exportar_csv(datos: list[dict], ruta_salida: str) -> None:
@@ -25,6 +26,108 @@ def exportar_csv(datos: list[dict], ruta_salida: str) -> None:
         writer = csv.DictWriter(f, fieldnames=datos[0].keys())
         writer.writeheader()
         writer.writerows(datos)
+
+
+def importar_csv(ruta_entrada: str) -> list[dict]:
+    with open(ruta_entrada, newline="", encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f))
+
+
+def importar_excel(ruta_entrada: str) -> list[dict]:
+    from openpyxl import load_workbook
+
+    libro = load_workbook(ruta_entrada, read_only=True, data_only=True)
+    hoja = libro.active
+
+    filas = hoja.iter_rows(values_only=True)
+    columnas = [str(c or "").strip() for c in next(filas)]
+
+    datos = []
+    for fila in filas:
+        if all(valor is None for valor in fila):
+            continue
+        datos.append({
+            columnas[i]: fila[i] for i in range(len(columnas))
+        })
+    return datos
+
+
+def exportar_inventario_zip(datos: list[dict], ruta_salida: str) -> None:
+    """
+    Igual que exportar_csv, pero además mete en el mismo .zip una copia
+    de cada foto referenciada en `foto_path` (carpeta "fotos/" dentro
+    del zip), para poder llevar el inventario CON sus fotos a otra
+    instalación de SIGITO (otra base de datos, otra PC).
+
+    Dentro del zip, cada fila del CSV queda con foto_path apuntando a
+    "fotos/<archivo>" (ruta relativa, portable) en vez de la ruta local
+    original de esta PC.
+    """
+    import zipfile
+
+    if not datos:
+        raise ValueError("No hay datos para exportar")
+
+    with zipfile.ZipFile(ruta_salida, "w", zipfile.ZIP_DEFLATED) as zf:
+        fotos_ya_copiadas = set()
+        filas_zip = []
+
+        for fila in datos:
+            fila_zip = dict(fila)
+            ruta_foto = fila.get("foto_path")
+
+            if ruta_foto and os.path.isfile(ruta_foto):
+                nombre_archivo = os.path.basename(ruta_foto)
+                if nombre_archivo not in fotos_ya_copiadas:
+                    zf.write(ruta_foto, f"fotos/{nombre_archivo}")
+                    fotos_ya_copiadas.add(nombre_archivo)
+                fila_zip["foto_path"] = f"fotos/{nombre_archivo}"
+            else:
+                fila_zip["foto_path"] = ""
+
+            filas_zip.append(fila_zip)
+
+        columnas = list(filas_zip[0].keys())
+        lineas = [",".join(columnas)]
+        for fila in filas_zip:
+            writer_fila = []
+            for columna in columnas:
+                valor = str(fila.get(columna, "")).replace('"', '""')
+                if any(c in valor for c in (",", '"', "\n")):
+                    valor = f'"{valor}"'
+                writer_fila.append(valor)
+            lineas.append(",".join(writer_fila))
+        zf.writestr("inventario.csv", "\r\n".join(lineas))
+
+
+def importar_inventario_zip(ruta_entrada: str, carpeta_fotos_destino: str) -> list[dict]:
+    """
+    Lee un .zip generado por exportar_inventario_zip: extrae las fotos a
+    `carpeta_fotos_destino` (creándola si hace falta) y devuelve las
+    filas del inventario con foto_path ya apuntando a esa carpeta local,
+    listas para pasarle a inventario_controller.importar_articulos.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(ruta_entrada, "r") as zf:
+        with zf.open("inventario.csv") as f:
+            texto = f.read().decode("utf-8-sig").splitlines()
+        filas = list(csv.DictReader(texto))
+
+        os.makedirs(carpeta_fotos_destino, exist_ok=True)
+        for nombre_en_zip in zf.namelist():
+            if nombre_en_zip.startswith("fotos/") and not nombre_en_zip.endswith("/"):
+                nombre_archivo = os.path.basename(nombre_en_zip)
+                with zf.open(nombre_en_zip) as origen:
+                    with open(os.path.join(carpeta_fotos_destino, nombre_archivo), "wb") as destino:
+                        destino.write(origen.read())
+
+    for fila in filas:
+        if fila.get("foto_path"):
+            nombre_archivo = os.path.basename(fila["foto_path"])
+            fila["foto_path"] = os.path.join(carpeta_fotos_destino, nombre_archivo)
+
+    return filas
 
 
 def exportar_excel(datos: list[dict], ruta_salida: str) -> None:
