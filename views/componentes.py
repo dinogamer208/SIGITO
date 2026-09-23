@@ -17,7 +17,9 @@ import uuid
 
 import customtkinter as ctk
 from tkinter import messagebox
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+
+from utils.sistema import area_de_trabajo
 
 
 def listar_camaras_disponibles(max_indices=5):
@@ -66,6 +68,7 @@ def abrir_ventana_camara(padre, colores, titulo, carpeta_destino, on_capturada, 
     _abrir_indice(camaras[0])
 
     camara_ventana = ctk.CTkToplevel(padre)
+    centrar_ventana(camara_ventana)
     camara_ventana.title(titulo)
     camara_ventana.configure(fg_color=colores["fondo"])
     camara_ventana.transient(padre)
@@ -200,6 +203,104 @@ def crear_campo_password(padre, colores, **kwargs_entry):
     boton.pack(side="left", padx=(6, 0))
 
     return frame, entry
+
+
+def centrar_ventana(ventana, duracion_ms=1000):
+    """
+    Centra una ventana emergente (CTkToplevel) en la pantalla. Llamar
+    justo después de crearla.
+
+    Mientras se arma, una ventana cambia de tamaño varias veces (el
+    contenido se acomoda, CustomTkinter aplica el zoom de Windows, la
+    propia vista fija su tamaño al final...), así que durante su primer
+    segundo se vuelve a centrar cada vez que cambia de tamaño. Hasta el
+    primer centrado queda transparente, para que no se vea saltar desde
+    la esquina.
+    """
+    try:
+        ventana.attributes("-alpha", 0.0)
+    except Exception:  # noqa: BLE001 - algunos sistemas no soportan -alpha
+        pass
+
+    estado = {"activo": True, "tamano": None}
+
+    def _centrar(forzar=False):
+        if not estado["activo"] or not ventana.winfo_exists():
+            return
+        ventana.update_idletasks()
+        ancho = ventana.winfo_width() if ventana.winfo_width() > 1 else ventana.winfo_reqwidth()
+        alto = ventana.winfo_height() if ventana.winfo_height() > 1 else ventana.winfo_reqheight()
+        if not forzar and (ancho, alto) == estado["tamano"]:
+            return  # solo se movió (p. ej. por el propio centrado)
+        estado["tamano"] = (ancho, alto)
+
+        area_x, area_y, area_ancho, area_alto = area_de_trabajo(ventana)
+        x = area_x + max((area_ancho - ancho) // 2, 0)
+        y = area_y + max((area_alto - alto) // 2, 0)
+        # Solo la posición: CustomTkinter no escala x/y, y así no se toca
+        # el tamaño que haya fijado la ventana.
+        ventana.geometry(f"+{x}+{y}")
+        try:
+            ventana.attributes("-alpha", 1.0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _al_cambiar(event):
+        if event.widget is ventana:
+            _centrar()
+
+    # No se hace unbind al terminar: en algunas versiones de Python
+    # unbind(secuencia, id) borra también el <Configure> de CustomTkinter.
+    ventana.bind("<Configure>", _al_cambiar, add="+")
+
+    def _terminar():
+        _centrar(forzar=True)
+        estado["activo"] = False
+
+    ventana.after(60, lambda: _centrar(forzar=True))
+    ventana.after(duracion_ms, _terminar)
+
+    # Esc cierra la ventana, igual que la X: si la ventana tiene su propio
+    # manejador de cierre (p. ej. la cámara, que libera el dispositivo), se usa ese.
+    def _cerrar(_event=None):
+        comando = ventana.protocol("WM_DELETE_WINDOW")
+        if comando:
+            ventana.tk.call(comando)
+        else:
+            ventana.destroy()
+
+    ventana.bind("<Escape>", _cerrar, add="+")
+
+
+# Avatares ya dibujados, por (color, iniciales, tamaño): se reusan entre filas.
+_AVATARES = {}
+
+
+def imagen_avatar(color, iniciales, tamano=30):
+    """
+    Círculo de color con las iniciales, como CTkImage. Se dibuja como
+    imagen (con suavizado) en vez de un CTkFrame redondeado con una
+    etiqueta encima: a estos tamaños y con el zoom de Windows, el frame
+    no quedaba redondo y la etiqueta se salía por abajo del círculo.
+    """
+    clave = (color, iniciales, tamano)
+    if clave not in _AVATARES:
+        escala = 4  # se dibuja 4 veces más grande y CTkImage lo reduce: bordes lisos
+        lado = tamano * escala
+        imagen = Image.new("RGBA", (lado, lado), (0, 0, 0, 0))
+        dibujo = ImageDraw.Draw(imagen)
+        dibujo.ellipse((0, 0, lado - 1, lado - 1), fill=color)
+        fuente = None
+        for archivo in ("segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"):
+            try:
+                fuente = ImageFont.truetype(archivo, int(lado * 0.38))
+                break
+            except OSError:
+                continue
+        dibujo.text((lado / 2, lado / 2), iniciales, fill="#FFFFFF",
+                    font=fuente or ImageFont.load_default(), anchor="mm")
+        _AVATARES[clave] = ctk.CTkImage(light_image=imagen, dark_image=imagen, size=(tamano, tamano))
+    return _AVATARES[clave]
 
 
 def crear_badge(padre, texto, fondo, texto_color):

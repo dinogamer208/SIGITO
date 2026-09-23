@@ -81,6 +81,8 @@ COLORES = {
     "danado_texto":         "#CA8A04",
     "de_baja_fondo":        "#F3F4F6",
     "de_baja_texto":        "#6B7280",
+    "tardista_fondo":       "#FFEDD5",
+    "tardista_texto":       "#EA580C",
 
     # Alertas y notificaciones
     "error":                "#DC2626",

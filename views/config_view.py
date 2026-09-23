@@ -31,13 +31,14 @@ self._contenedor (ver _card()):
     muestra ✓/✗ por cada pieza crítica del sistema.
 """
 
+import os
 import threading
 
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
 from views.tema import COLORES, colores_dashboard, ESTILO_BOTON_PRIMARIO, ESTILO_BOTON_SECUNDARIO
-from views.componentes import crear_card, crear_encabezado, crear_campo_password
+from views.componentes import crear_card, crear_encabezado, crear_campo_password, centrar_ventana
 from controllers import auth_controller, config_controller
 from controllers.inventario_controller import importar_articulos, datos_para_exportar
 from utils import diagnostico
@@ -452,17 +453,19 @@ class ConfigView(ctk.CTkScrollableFrame):
             messagebox.showinfo("Éxito", resumen)
 
     # ------------------------------------------------------------------
-    # 4. Respaldo automático del inventario
+    # 4. Respaldo automático (base de datos completa + inventario)
     # ------------------------------------------------------------------
 
     def _seccion_respaldo_automatico(self):
         interior = self._card(
-            "Respaldo automático del inventario",
-            "Si lo activas, SIGITO genera solo un respaldo (igual al "
-            "\"Descargar con fotos\") en la carpeta backups/ cada tantas "
-            "horas, mientras la app esté abierta, y borra los respaldos "
-            "más viejos para no acumular espacio indefinidamente (guarda "
-            "los últimos 10)."
+            "Respaldo automático",
+            "Si lo activas, SIGITO guarda solo en la carpeta backups/, cada "
+            "tantas horas mientras la app esté abierta, un respaldo COMPLETO "
+            "(toda la base de datos: préstamos, devoluciones, daños, "
+            "historial, usuarios… más todas las fotos) y uno del inventario "
+            "(igual al \"Descargar con fotos\"). Guarda los últimos 10 de "
+            "cada uno. Las instrucciones para restaurar van dentro del zip "
+            "(LEEME.txt)."
         )
 
         try:
@@ -503,10 +506,56 @@ class ConfigView(ctk.CTkScrollableFrame):
             command=self._guardar_ajuste_respaldo, **ESTILO_BOTON_PRIMARIO,
         ).pack(side="left")
 
+        fila_manual = ctk.CTkFrame(interior, fg_color="transparent")
+        fila_manual.pack(fill="x", pady=(12, 0))
+
+        ctk.CTkButton(
+            fila_manual, text="Respaldar ahora", width=150, height=32,
+            command=self._respaldar_ahora, **ESTILO_BOTON_PRIMARIO,
+        ).pack(side="left")
+        ctk.CTkButton(
+            fila_manual, text="Abrir carpeta", width=130, height=32,
+            command=self._abrir_carpeta_respaldos, **ESTILO_BOTON_SECUNDARIO,
+        ).pack(side="left", padx=(10, 0))
+
+        self.lbl_ultimo_respaldo = ctk.CTkLabel(
+            fila_manual, text="", font=("Segoe UI", 12), text_color=self.c["subtext"],
+        )
+        self.lbl_ultimo_respaldo.pack(side="left", padx=(16, 0))
+        self._mostrar_ultimo_respaldo()
+
         self.lbl_respaldo_estado = ctk.CTkLabel(
             interior, text="", font=("Segoe UI", 12), anchor="w", justify="left",
         )
         self.lbl_respaldo_estado.pack(fill="x", pady=(10, 0))
+
+    def _mostrar_ultimo_respaldo(self):
+        from utils import respaldo
+        ultimo = respaldo.ultimo_respaldo_completo()
+        self.lbl_ultimo_respaldo.configure(
+            text=f"Último respaldo completo: {ultimo[1]:%Y-%m-%d %H:%M}" if ultimo
+            else "Todavía no hay respaldos completos."
+        )
+
+    def _respaldar_ahora(self):
+        from utils import respaldo
+        self.lbl_respaldo_estado.configure(text="Generando respaldo…", text_color=self.c["subtext"])
+        self.update_idletasks()
+        try:
+            ruta = respaldo.generar_respaldo_completo()
+        except Exception as error:  # noqa: BLE001
+            self.lbl_respaldo_estado.configure(
+                text=f"No se pudo generar el respaldo: {error}", text_color=COLORES["error"])
+            return
+        self.lbl_respaldo_estado.configure(
+            text=f"Respaldo completo guardado en {os.path.abspath(ruta)}", text_color=COLORES["exito"])
+        self._mostrar_ultimo_respaldo()
+
+    def _abrir_carpeta_respaldos(self):
+        from utils import respaldo
+        from utils.sistema import abrir_archivo
+        os.makedirs(respaldo.CARPETA_RESPALDOS, exist_ok=True)
+        abrir_archivo(os.path.abspath(respaldo.CARPETA_RESPALDOS))
 
     def _guardar_ajuste_respaldo(self):
         intervalo_texto = self.entry_intervalo_respaldo.get().strip()
@@ -620,6 +669,7 @@ class ConfigView(ctk.CTkScrollableFrame):
 
     def _restablecer_password_usuario(self, usuario_fila):
         ventana = ctk.CTkToplevel(self)
+        centrar_ventana(ventana)
         ventana.title(f"Restablecer contraseña — {usuario_fila['usuario']}")
         ventana.geometry("340x220")
         ventana.configure(fg_color=self.c["fondo"])
@@ -815,6 +865,7 @@ class ConfigView(ctk.CTkScrollableFrame):
         codigo = auth_controller.generar_codigo_recuperacion(self.usuario.id)
 
         ventana = ctk.CTkToplevel(self)
+        centrar_ventana(ventana)
         ventana.title("Tu código de recuperación")
         ventana.geometry("420x260")
         ventana.configure(fg_color=self.c["fondo"])
@@ -910,6 +961,7 @@ class ConfigView(ctk.CTkScrollableFrame):
         """Modal que pide la contraseña del usuario con sesión activa antes
         de dejar seguir con una acción destructiva."""
         ventana = ctk.CTkToplevel(self)
+        centrar_ventana(ventana)
         ventana.title("Confirmar identidad")
         ventana.geometry("360x200")
         ventana.configure(fg_color=self.c["fondo"])

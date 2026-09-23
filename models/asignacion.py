@@ -33,6 +33,9 @@ class Asignacion:
     usuario_registro_id: int
     usuario_devolucion_id: Optional[int]
     fecha_creacion: Optional[datetime] = None
+    devuelto_danado: bool = False
+    observaciones_devolucion: Optional[str] = None
+    foto_devolucion: Optional[str] = None
 
     @staticmethod
     def desde_fila(fila: dict) -> "Asignacion":
@@ -55,6 +58,9 @@ class Asignacion:
             usuario_registro_id=fila["usuario_registro_id"],
             usuario_devolucion_id=fila.get("usuario_devolucion_id"),
             fecha_creacion=fila.get("fecha_creacion"),
+            devuelto_danado=bool(fila.get("devuelto_danado", False)),
+            observaciones_devolucion=fila.get("observaciones_devolucion"),
+            foto_devolucion=fila.get("foto_devolucion"),
         )
 
     def esta_vencida(self) -> bool:

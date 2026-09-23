@@ -11,6 +11,7 @@ pytest                            # desde la raíz del proyecto
 |---|---|---|
 | `test_seguridad.py` | Hash de contraseñas (bcrypt) y cifrado/descifrado de credenciales (Fernet). La llave Fernet se aísla en un archivo temporal. | No |
 | `test_validaciones_logica.py` | Reglas de la contraseña nueva (`auth_controller.validar_password_nueva`) y formato de correo (`config_controller.correo_valido`). | No |
+| `test_marcas_alumnos.py` | Marcas de alumno "No cuida" / "Tardista" / ambas (`asignacion_controller.historial_alumnos`, `alumnos_marcados`): límites, nombres escritos distinto y orden del reporte. La consulta a MySQL se reemplaza por filas falsas. | No |
 
 Las pruebas que sí tocan la base de datos (login real, `cambiar_password`,
 `obtener_config`, consultas de reportes) se ejecutan en vivo desde la

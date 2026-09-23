@@ -23,6 +23,7 @@ from datetime import date, datetime
 from db.conexion import obtener_conexion
 from models.articulo import Articulo
 from utils.auditoria import registrar_movimiento
+from utils.validaciones import variantes_codigo_escaneado
 
 
 def generar_codigo_inventario(prefijo):
@@ -274,12 +275,19 @@ def eliminar_articulo(id_articulo):
 # Buscar artículo por código (usado por el escáner)
 # ---------------------------------------------------------
 def buscar_articulo_por_codigo(codigo):
+    """Busca por código exacto; si no existe, prueba las variantes que
+    produce un lector de barras con otra distribución de teclado (ver
+    utils.validaciones.variantes_codigo_escaneado)."""
     conexion = obtener_conexion()
     cursor = conexion.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT * FROM articulos WHERE codigo_inventario = %s", (codigo,)
-    )
-    fila = cursor.fetchone()
+    fila = None
+    for variante in variantes_codigo_escaneado(codigo):
+        cursor.execute(
+            "SELECT * FROM articulos WHERE codigo_inventario = %s", (variante,)
+        )
+        fila = cursor.fetchone()
+        if fila:
+            break
     cursor.close()
     conexion.close()
 

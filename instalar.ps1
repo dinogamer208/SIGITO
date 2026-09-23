@@ -149,7 +149,11 @@ $existe = & $MysqlExe -h "$ConnectHost" -P "$Port" -u root -p"$RootPass" -N -s -
 if ($existe -match '1') {
     Write-Host "La base de datos ya tenía tablas; no se vuelve a correr schema.sql (para no borrar datos)." -ForegroundColor Yellow
 } else {
-    Get-Content $SchemaFile -Raw | & $MysqlExe -h "$ConnectHost" -P "$Port" -u root -p"$RootPass"
+    # `source` hace que mysql lea el archivo directo como UTF-8. Antes se
+    # pasaba por una tubería de PowerShell, que cambiaba la codificación y
+    # rompía la "ñ" (el ENUM 'dañado' quedaba como 'da├▒ado').
+    $SchemaSql = $SchemaFile -replace '\\', '/'
+    & $MysqlExe --default-character-set=utf8mb4 -h "$ConnectHost" -P "$Port" -u root -p"$RootPass" -e "source $SchemaSql"
     if ($LASTEXITCODE -ne 0) { Salir-ConError "Falló al crear la base de datos desde schema.sql." }
     Write-Host "Base de datos creada." -ForegroundColor Green
 }

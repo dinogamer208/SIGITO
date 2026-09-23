@@ -310,3 +310,27 @@ def enviar_correo_atraso(prestamo: dict) -> None:
     with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=contexto, timeout=15) as servidor:
         servidor.login(remitente, password)
         servidor.send_message(mensaje, to_addrs=destinatarios)
+
+
+def leer_ajuste(clave: str, default: str = None) -> str:
+    """Valor suelto de la tabla configuracion (o `default` si no existe)."""
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute("SELECT valor FROM configuracion WHERE clave = %s", (clave,))
+    fila = cursor.fetchone()
+    cursor.close()
+    conexion.close()
+    return fila[0] if fila and fila[0] is not None else default
+
+
+def guardar_ajuste(clave: str, valor: str) -> None:
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+        (clave, valor),
+    )
+    conexion.commit()
+    cursor.close()
+    conexion.close()

@@ -27,7 +27,7 @@ from views.tema import COLORES, colores_dashboard, ESTILO_BOTON_PRIMARIO, ESTILO
 from views.componentes import (
     crear_card, crear_encabezado, crear_kpi_card,
     crear_encabezado_tabla, crear_fila_tabla, crear_badge,
-    abrir_ventana_camara
+    abrir_ventana_camara, centrar_ventana,
 )
 
 CARPETA_FOTOS = os.path.join("assets", "fotos_articulos")
@@ -221,13 +221,18 @@ class InventarioView(ctk.CTkFrame):
             return "agotado"
         return "disponible"
 
-    def _cargar_articulos(self, filtro_texto=None):
+    def _cargar_articulos(self, filtro_texto=None, codigo_exacto=None):
+        """`filtro_texto` busca por parte del nombre o código (búsqueda
+        manual); `codigo_exacto` muestra solo el artículo con ese código
+        (escaneo con el lector de barras)."""
         if filtro_texto is None and hasattr(self, "entrada_busqueda"):
             filtro_texto = self.entrada_busqueda.get()
 
         articulos = listar_articulos()
 
-        if filtro_texto:
+        if codigo_exacto:
+            articulos = [a for a in articulos if a.codigo_inventario == codigo_exacto]
+        elif filtro_texto:
             filtro = filtro_texto.strip().lower()
             articulos = [
                 a for a in articulos
@@ -412,9 +417,21 @@ class InventarioView(ctk.CTkFrame):
             self._cargar_articulos()
             return
 
+        # Si el Enter corresponde a un código existente (escaneo), mostrar
+        # solo ese artículo, no todos los que contengan el texto. Si el
+        # lector metió un ' (teclado en otra distribución), dejar en la
+        # barra el código real.
+        articulo = buscar_articulo_por_codigo(texto)
+        if articulo:
+            if articulo.codigo_inventario != texto:
+                self.entrada_busqueda.delete(0, "end")
+                self.entrada_busqueda.insert(0, articulo.codigo_inventario)
+            self._cargar_articulos(codigo_exacto=articulo.codigo_inventario)
+            return
+
         self._cargar_articulos(texto)
 
-        if buscar_articulo_por_codigo(texto) is None and not self._articulos:
+        if articulo is None and not self._articulos:
             messagebox.showinfo("Sin resultados", f"No se encontró ningún artículo con «{texto}».")
 
     def _on_limpiar_busqueda(self):
@@ -438,6 +455,7 @@ class InventarioView(ctk.CTkFrame):
 
     def _mostrar_ventana_codigo_barras(self, articulo, ruta_generada):
         ventana = ctk.CTkToplevel(self)
+        centrar_ventana(ventana)
         ventana.title(f"Código de barras — {articulo.codigo_inventario}")
         ventana.configure(fg_color=self.c["fondo"])
         ventana.transient(self)
@@ -486,6 +504,7 @@ class InventarioView(ctk.CTkFrame):
     # ------------------------------------------------------------
     def _abrir_categorias(self):
         ventana = ctk.CTkToplevel(self)
+        centrar_ventana(ventana)
         ventana.title("Categorías")
         ventana.geometry("380x520")
         ventana.configure(fg_color=self.c["fondo"])
@@ -607,6 +626,7 @@ class InventarioView(ctk.CTkFrame):
     # ------------------------------------------------------------
     def _abrir_formulario(self, articulo=None):
         ventana = ctk.CTkToplevel(self)
+        centrar_ventana(ventana)
         ventana.title("Editar artículo" if articulo else "Agregar artículo")
         ventana.minsize(680, 520)
         ventana.configure(fg_color=self.c["fondo"])
@@ -679,6 +699,7 @@ class InventarioView(ctk.CTkFrame):
 
         def _agregar_categoria_rapida():
             ventana_cat = ctk.CTkToplevel(ventana)
+            centrar_ventana(ventana_cat)
             ventana_cat.title("Nueva categoría")
             ventana_cat.geometry("300x230")
             ventana_cat.configure(fg_color=self.c["fondo"])

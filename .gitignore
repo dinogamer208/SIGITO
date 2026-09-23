@@ -17,6 +17,7 @@ config_local.py
 assets/etiquetas/*.png
 assets/fotos_articulos/*
 assets/fotos_prestamos/*
+assets/fotos_devoluciones/*
 backups/
 
 # Sistema operativo

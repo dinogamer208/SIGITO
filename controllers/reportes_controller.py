@@ -86,15 +86,34 @@ def asignaciones_por_mes(meses: int = 6) -> list[dict]:
     return filas
 
 
-def articulos_mas_prestados(limite: int = 10) -> list[dict]:
+# Filtro de fecha (sobre hora_salida) para cada periodo del ranking.
+_FILTROS_PERIODO = {
+    "dia":  "DATE(a.hora_salida) = CURDATE()",
+    "mes":  "YEAR(a.hora_salida) = YEAR(CURDATE()) AND MONTH(a.hora_salida) = MONTH(CURDATE())",
+    "anio": "YEAR(a.hora_salida) = YEAR(CURDATE())",
+    None:   "TRUE",
+}
+
+
+def articulos_mas_prestados(limite: int = 10, periodo: str = None) -> list[dict]:
+    """
+    Ranking de artículos por número de préstamos. `periodo` limita a los
+    préstamos de hoy ("dia"), del mes actual ("mes"), del año actual
+    ("anio") o de siempre (None). `unidades` suma la cantidad de cada
+    préstamo (un préstamo puede llevarse varias unidades).
+    """
+    filtro = _FILTROS_PERIODO[periodo]
     conexion = obtener_conexion()
     cursor = conexion.cursor(dictionary=True)
-    cursor.execute("""
-        SELECT ar.codigo_inventario, ar.nombre, COUNT(a.id) AS veces_prestado
+    cursor.execute(f"""
+        SELECT ar.codigo_inventario, ar.nombre, c.nombre AS categoria,
+               COUNT(a.id) AS veces_prestado, SUM(a.cantidad) AS unidades
         FROM asignaciones a
         JOIN articulos ar ON ar.id = a.articulo_id
-        GROUP BY ar.id, ar.codigo_inventario, ar.nombre
-        ORDER BY veces_prestado DESC
+        LEFT JOIN categorias c ON c.id = ar.categoria_id
+        WHERE {filtro}
+        GROUP BY ar.id, ar.codigo_inventario, ar.nombre, c.nombre
+        ORDER BY veces_prestado DESC, unidades DESC
         LIMIT %s
     """, (limite,))
     filas = cursor.fetchall()

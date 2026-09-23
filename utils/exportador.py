@@ -180,3 +180,98 @@ def exportar_pdf(datos: list[dict], ruta_salida: str) -> None:
     ]))
 
     documento.build([tabla])
+
+
+# ------------------------------------------------------------
+# Reportes con varias secciones (ej. préstamos vencidos + ranking de
+# más prestados). `secciones` es una lista de (titulo, datos), donde
+# `datos` es una lista de dicts como en las funciones de arriba. Las
+# secciones sin datos se omiten.
+# ------------------------------------------------------------
+
+def _secciones_con_datos(secciones):
+    con_datos = [(titulo, datos) for titulo, datos in secciones if datos]
+    if not con_datos:
+        raise ValueError("No hay datos para exportar")
+    return con_datos
+
+
+def exportar_csv_secciones(secciones: list[tuple[str, list[dict]]], ruta_salida: str) -> None:
+    """Un CSV no admite varias tablas: cada sección va una debajo de
+    otra, con su título en una línea y una línea vacía entre ellas."""
+    secciones = _secciones_con_datos(secciones)
+    with open(ruta_salida, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        for i, (titulo, datos) in enumerate(secciones):
+            if i:
+                writer.writerow([])
+            writer.writerow([titulo])
+            columnas = list(datos[0].keys())
+            writer.writerow(columnas)
+            for fila in datos:
+                writer.writerow([fila.get(col, "") for col in columnas])
+
+
+def exportar_excel_secciones(secciones: list[tuple[str, list[dict]]], ruta_salida: str) -> None:
+    """Una hoja por sección, con el título como nombre de la hoja."""
+    secciones = _secciones_con_datos(secciones)
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    libro = Workbook()
+    libro.remove(libro.active)
+
+    for titulo, datos in secciones:
+        # Excel limita el nombre de hoja a 31 caracteres y prohíbe algunos símbolos.
+        nombre_hoja = "".join(c for c in titulo if c not in "[]:*?/\\")[:31]
+        hoja = libro.create_sheet(nombre_hoja)
+
+        columnas = list(datos[0].keys())
+        hoja.append(columnas)
+        for celda in hoja[1]:
+            celda.font = Font(bold=True)
+
+        for fila in datos:
+            hoja.append([str(fila.get(col, "")) for col in columnas])
+
+        for i, columna in enumerate(columnas, start=1):
+            ancho = max(len(columna), *(len(str(fila.get(columna, ""))) for fila in datos)) + 2
+            hoja.column_dimensions[hoja.cell(row=1, column=i).column_letter].width = ancho
+
+    libro.save(ruta_salida)
+
+
+def exportar_pdf_secciones(secciones: list[tuple[str, list[dict]]], ruta_salida: str) -> None:
+    """Un solo PDF con el título de cada sección seguido de su tabla."""
+    secciones = _secciones_con_datos(secciones)
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+    estilos = getSampleStyleSheet()
+    elementos = []
+
+    for i, (titulo, datos) in enumerate(secciones):
+        if i:
+            elementos.append(Spacer(1, 18))
+        elementos.append(Paragraph(titulo, estilos["Heading2"]))
+
+        columnas = list(datos[0].keys())
+        filas = [[str(fila.get(col, "")) for col in columnas] for fila in datos]
+
+        tabla = Table([columnas] + filas, repeatRows=1)
+        tabla.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1D4ED8")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F3F4F6")]),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elementos.append(tabla)
+
+    SimpleDocTemplate(ruta_salida, pagesize=landscape(letter)).build(elementos)

@@ -99,6 +99,9 @@ CREATE TABLE asignaciones (
     correo_aviso_enviado BOOLEAN DEFAULT FALSE,
     usuario_registro_id INT NOT NULL,
     usuario_devolucion_id INT NULL,
+    devuelto_danado BOOLEAN NOT NULL DEFAULT FALSE,
+    observaciones_devolucion TEXT NULL,
+    foto_devolucion VARCHAR(255) NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (articulo_id) REFERENCES articulos(id),
     FOREIGN KEY (profesor_autoriza_id) REFERENCES profesores_autorizados(id),
@@ -172,7 +175,10 @@ INSERT INTO control_versiones (nombre_migracion) VALUES
     ('004_stock.sql'),
     ('005_roles_y_mantenimiento.sql'),
     ('006_recuperacion_cuenta.sql'),
-    ('007_limite_intentos_recuperacion.sql');
+    ('007_limite_intentos_recuperacion.sql'),
+    ('008_devolucion_danada.sql'),
+    ('009_foto_devolucion.sql'),
+    ('010_corregir_enum_danado.sql');
 
 -- =========================================================
 -- NOTA: Ya no se crea un usuario de MySQL separado (sigito_app)

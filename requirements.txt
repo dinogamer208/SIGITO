@@ -10,4 +10,4 @@ cryptography   # cifra la contraseña de aplicación SMTP (utils/seguridad.py)
 pytest         # pruebas de la lógica importante (carpeta tests/)
 tkcalendar     # calendario seleccionable (fecha de devolución en Asignaciones)
 opencv-python-headless   # captura de foto con cámara al registrar un préstamo
-winotify       # notificaciones nativas de Windows (préstamos atrasados)
+winotify ; sys_platform == "win32"   # notificaciones nativas de Windows (préstamos atrasados); en Linux se usa notify-send (ver utils/notificaciones.py), no requiere paquete pip

@@ -20,7 +20,7 @@ from views.tema import (
     COLORES, color_fondo, color_card, color_texto, colores_dashboard,
     ESTILO_BOTON_PRIMARIO, ESTILO_BOTON_SECUNDARIO, forzar_redibujo,
 )
-from views.componentes import crear_card, crear_campo_password
+from views.componentes import crear_card, crear_campo_password, centrar_ventana
 
 
 class LoginView(ctk.CTkToplevel):
@@ -101,6 +101,7 @@ class LoginView(ctk.CTkToplevel):
         c = colores_dashboard()
 
         ventana = ctk.CTkToplevel(self)
+        centrar_ventana(ventana)
         ventana.title("Recuperar contraseña")
         ventana.geometry("380x360")
         ventana.configure(fg_color=color_fondo())
