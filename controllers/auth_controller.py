@@ -9,7 +9,7 @@ import re
 import secrets
 from datetime import datetime, timedelta
 
-from db.conexion import obtener_conexion, transaccion
+from db.conexion import transaccion
 from models.usuario import Usuario
 from utils.seguridad import hash_password, verificar_password, necesita_rehash
 
@@ -117,20 +117,15 @@ def verificar_password_usuario(usuario_id: int, password: str) -> bool:
     sesión nueva. Se usa para reconfirmar identidad antes de una acción
     destructiva (ej. borrar la base de datos desde Configuración).
     """
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
+    with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute(
             "SELECT password_hash FROM usuarios WHERE id = %s AND activo = TRUE",
             (usuario_id,),
         )
         fila = cursor.fetchone()
-        cursor.close()
         if not fila:
             return False
         return verificar_password(password, fila["password_hash"])
-    finally:
-        conexion.close()
 
 
 def verificar_password_admin(password: str) -> bool:
@@ -140,9 +135,7 @@ def verificar_password_admin(password: str) -> bool:
     'limitado' no puede hacer por sí solo, ej. cambiar su propia
     contraseña (necesita que un admin la autorice tecleándola).
     """
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
+    with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute(
             "SELECT password_hash FROM usuarios WHERE rol = 'admin' AND activo = TRUE"
         )
@@ -150,8 +143,6 @@ def verificar_password_admin(password: str) -> bool:
             verificar_password(password, fila["password_hash"])
             for fila in cursor.fetchall()
         )
-    finally:
-        conexion.close()
 
 
 def cambiar_password_autorizado_por_admin(usuario_id: int, password_admin: str,
@@ -167,29 +158,19 @@ def cambiar_password_autorizado_por_admin(usuario_id: int, password_admin: str,
     if not verificar_password_admin(password_admin):
         raise ValueError("La contraseña del administrador es incorrecta.")
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute(
             "UPDATE usuarios SET password_hash = %s WHERE id = %s",
             (hash_password(nueva), usuario_id),
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def listar_usuarios() -> list[dict]:
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT id, nombre, usuario, rol, activo FROM usuarios ORDER BY id"
-    )
-    filas = cursor.fetchall()
-    cursor.close()
-    conexion.close()
-    return filas
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute(
+            "SELECT id, nombre, usuario, rol, activo FROM usuarios ORDER BY id"
+        )
+        return cursor.fetchall()
 
 
 def agregar_usuario(nombre: str, usuario: str, password: str, rol: str) -> int:
@@ -207,12 +188,9 @@ def agregar_usuario(nombre: str, usuario: str, password: str, rol: str) -> int:
     if rol not in ROLES_VALIDOS:
         raise ValueError(f"Rol inválido: {rol}")
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute("SELECT id FROM usuarios WHERE usuario = %s", (usuario,))
         if cursor.fetchone():
-            cursor.close()
             raise ValueError(f"Ya existe un usuario con el nombre de usuario '{usuario}'.")
 
         cursor.execute(
@@ -220,12 +198,7 @@ def agregar_usuario(nombre: str, usuario: str, password: str, rol: str) -> int:
             "VALUES (%s, %s, %s, %s, TRUE)",
             (nombre, usuario, hash_password(password), rol),
         )
-        conexion.commit()
-        nuevo_id = cursor.lastrowid
-        cursor.close()
-        return nuevo_id
-    finally:
-        conexion.close()
+        return cursor.lastrowid
 
 
 def _hay_otro_admin_activo(cursor, usuario_id_excluido: int) -> bool:
@@ -246,20 +219,13 @@ def restablecer_password_admin(usuario_id: int, nueva_password: str) -> None:
     if len(nueva_password or "") < LONGITUD_MINIMA_PASSWORD:
         raise ValueError(f"La contraseña debe tener al menos {LONGITUD_MINIMA_PASSWORD} caracteres.")
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute(
             "UPDATE usuarios SET password_hash = %s WHERE id = %s",
             (hash_password(nueva_password), usuario_id),
         )
         if cursor.rowcount == 0:
-            cursor.close()
             raise ValueError(f"No existe el usuario id={usuario_id}")
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def cambiar_estado_usuario(usuario_id: int, activo: bool) -> None:
@@ -271,24 +237,17 @@ def cambiar_estado_usuario(usuario_id: int, activo: bool) -> None:
 
     No se puede desactivar al único admin activo que quede.
     """
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         if not activo:
             cursor.execute("SELECT rol FROM usuarios WHERE id = %s", (usuario_id,))
             fila = cursor.fetchone()
             if fila and fila[0] == "admin" and not _hay_otro_admin_activo(cursor, usuario_id):
-                cursor.close()
                 raise ValueError("No puedes desactivar al único administrador activo.")
 
         cursor.execute(
             "UPDATE usuarios SET activo = %s WHERE id = %s",
             (activo, usuario_id),
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def eliminar_usuario(usuario_id: int) -> None:
@@ -302,18 +261,13 @@ def eliminar_usuario(usuario_id: int) -> None:
 
     No se puede eliminar al único administrador activo.
     """
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
-
+    with transaccion() as (cursor, _con):
         cursor.execute("SELECT rol, activo FROM usuarios WHERE id = %s", (usuario_id,))
         fila = cursor.fetchone()
         if not fila:
-            cursor.close()
             raise ValueError(f"No existe el usuario id={usuario_id}")
         rol, activo = fila
         if rol == "admin" and activo and not _hay_otro_admin_activo(cursor, usuario_id):
-            cursor.close()
             raise ValueError("No puedes eliminar al único administrador activo.")
 
         cursor.execute(
@@ -329,17 +283,12 @@ def eliminar_usuario(usuario_id: int) -> None:
         en_historial = cursor.fetchone()[0]
 
         if en_asignaciones or en_historial:
-            cursor.close()
             raise ValueError(
                 "No se puede eliminar: este usuario ya tiene actividad registrada "
                 "(préstamos y/o historial). Desactívalo en su lugar."
             )
 
         cursor.execute("DELETE FROM usuarios WHERE id = %s", (usuario_id,))
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 # ---------------------------------------------------------
@@ -372,9 +321,7 @@ def _chequear_bloqueo_recuperacion(fila: dict) -> None:
 
 
 def _registrar_intento_fallido_recuperacion(usuario_id: int) -> None:
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute(
             "UPDATE usuarios SET recovery_intentos_fallidos = recovery_intentos_fallidos + 1 "
             "WHERE id = %s",
@@ -386,25 +333,15 @@ def _registrar_intento_fallido_recuperacion(usuario_id: int) -> None:
             (datetime.now() + timedelta(minutes=BLOQUEO_RECUPERACION_MINUTOS),
              usuario_id, MAX_INTENTOS_RECUPERACION)
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def _resetear_intentos_recuperacion(usuario_id: int) -> None:
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute(
             "UPDATE usuarios SET recovery_intentos_fallidos = 0, recovery_bloqueado_hasta = NULL "
             "WHERE id = %s",
             (usuario_id,)
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def generar_codigo_recuperacion(usuario_id: int) -> str:
@@ -416,31 +353,21 @@ def generar_codigo_recuperacion(usuario_id: int) -> str:
     """
     codigo = "-".join(secrets.token_hex(2).upper() for _ in range(4))  # ej. AB12-CD34-EF56-1A2B
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute(
             "UPDATE usuarios SET recovery_code_hash = %s, recovery_intentos_fallidos = 0, "
             "recovery_bloqueado_hasta = NULL WHERE id = %s",
             (hash_password(codigo), usuario_id),
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
     return codigo
 
 
 def tiene_codigo_recuperacion(usuario_id: int) -> bool:
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute("SELECT recovery_code_hash FROM usuarios WHERE id = %s", (usuario_id,))
         fila = cursor.fetchone()
         return bool(fila and fila[0])
-    finally:
-        conexion.close()
 
 
 def recuperar_con_codigo(usuario: str, codigo: str, nueva: str, confirmar: str) -> None:
@@ -453,16 +380,13 @@ def recuperar_con_codigo(usuario: str, codigo: str, nueva: str, confirmar: str) 
     if error:
         raise ValueError(error)
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
+    with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute(
             "SELECT id, recovery_code_hash, recovery_bloqueado_hasta FROM usuarios "
             "WHERE usuario = %s AND activo = TRUE",
             (usuario,)
         )
         fila = cursor.fetchone()
-        cursor.close()
         if not fila or not fila["recovery_code_hash"]:
             raise ValueError("Este usuario no tiene un código de recuperación configurado.")
 
@@ -472,16 +396,11 @@ def recuperar_con_codigo(usuario: str, codigo: str, nueva: str, confirmar: str) 
             _registrar_intento_fallido_recuperacion(fila["id"])
             raise ValueError("El código de recuperación es incorrecto.")
 
-        cursor = conexion.cursor()
         cursor.execute(
             "UPDATE usuarios SET password_hash = %s, recovery_code_hash = NULL, "
             "recovery_intentos_fallidos = 0, recovery_bloqueado_hasta = NULL WHERE id = %s",
             (hash_password(nueva), fila["id"]),
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def actualizar_correo(usuario_id: int, correo: str) -> None:
@@ -491,16 +410,10 @@ def actualizar_correo(usuario_id: int, correo: str) -> None:
     if correo and not _RE_CORREO.match(correo):
         raise ValueError("El correo no tiene un formato válido.")
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor()
+    with transaccion() as (cursor, _con):
         cursor.execute(
             "UPDATE usuarios SET correo = %s WHERE id = %s", (correo or None, usuario_id)
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 def solicitar_codigo_recuperacion_por_correo(usuario: str) -> str:
@@ -514,18 +427,14 @@ def solicitar_codigo_recuperacion_por_correo(usuario: str) -> str:
     """
     from controllers import config_controller  # import local: evita ciclo a nivel de módulo
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
+    with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute(
             "SELECT id, correo FROM usuarios WHERE usuario = %s AND activo = TRUE", (usuario,)
         )
         fila = cursor.fetchone()
         if not fila:
-            cursor.close()
             raise ValueError("No existe ese usuario, o está desactivado.")
         if not fila["correo"]:
-            cursor.close()
             raise ValueError("Este usuario no tiene un correo de recuperación registrado.")
 
         codigo = f"{secrets.randbelow(1_000_000):06d}"
@@ -535,10 +444,6 @@ def solicitar_codigo_recuperacion_por_correo(usuario: str) -> str:
             "WHERE id = %s",
             (hash_password(codigo), expira, fila["id"]),
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
     config_controller.enviar_correo_codigo_recuperacion(fila["correo"], codigo)
     return fila["correo"]
@@ -549,16 +454,13 @@ def recuperar_con_codigo_correo(usuario: str, codigo: str, nueva: str, confirmar
     if error:
         raise ValueError(error)
 
-    conexion = obtener_conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
+    with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute(
             "SELECT id, recovery_email_code_hash, recovery_email_code_expira, "
             "recovery_bloqueado_hasta FROM usuarios WHERE usuario = %s AND activo = TRUE",
             (usuario,)
         )
         fila = cursor.fetchone()
-        cursor.close()
         if not fila or not fila["recovery_email_code_hash"]:
             raise ValueError("No hay un código pendiente para este usuario. Pide uno nuevo.")
 
@@ -570,17 +472,12 @@ def recuperar_con_codigo_correo(usuario: str, codigo: str, nueva: str, confirmar
             _registrar_intento_fallido_recuperacion(fila["id"])
             raise ValueError("El código es incorrecto.")
 
-        cursor = conexion.cursor()
         cursor.execute(
             "UPDATE usuarios SET password_hash = %s, recovery_email_code_hash = NULL, "
             "recovery_email_code_expira = NULL, recovery_intentos_fallidos = 0, "
             "recovery_bloqueado_hasta = NULL WHERE id = %s",
             (hash_password(nueva), fila["id"]),
         )
-        conexion.commit()
-        cursor.close()
-    finally:
-        conexion.close()
 
 
 # ---------------------------------------------------------

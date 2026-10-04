@@ -86,15 +86,12 @@ def obtener_ajuste_respaldo() -> dict:
     automático del inventario (utils/respaldo.py). Si nunca se guardó,
     vuelve el default: desactivado, cada 24 horas.
     """
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT clave, valor FROM configuracion WHERE clave IN (%s, %s)",
-        _CLAVES_RESPALDO,
-    )
-    filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
-    cursor.close()
-    conexion.close()
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute(
+            "SELECT clave, valor FROM configuracion WHERE clave IN (%s, %s)",
+            _CLAVES_RESPALDO,
+        )
+        filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
 
     try:
         intervalo = int(filas.get("respaldo_intervalo_horas") or 24)
@@ -108,19 +105,15 @@ def obtener_ajuste_respaldo() -> dict:
 
 
 def guardar_ajuste_respaldo(activo: bool, intervalo_horas: int) -> None:
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.executemany(
-        "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
-        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
-        [
-            ("respaldo_automatico_activo", "true" if activo else "false"),
-            ("respaldo_intervalo_horas", str(max(1, int(intervalo_horas)))),
-        ],
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.executemany(
+            "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+            [
+                ("respaldo_automatico_activo", "true" if activo else "false"),
+                ("respaldo_intervalo_horas", str(max(1, int(intervalo_horas)))),
+            ],
+        )
 
 
 _CLAVES_SOPORTE = ("soporte_telefono", "soporte_coordinador", "soporte_correo")
@@ -132,15 +125,12 @@ def obtener_contacto_soporte() -> dict:
     tiene forma de recuperar su contraseña por sí solo (ver
     Configuración > Recuperación de cuenta > Contacto de soporte).
     """
-    conexion = obtener_conexion()
-    cursor = conexion.cursor(dictionary=True)
-    cursor.execute(
-        "SELECT clave, valor FROM configuracion WHERE clave IN (%s, %s, %s)",
-        _CLAVES_SOPORTE,
-    )
-    filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
-    cursor.close()
-    conexion.close()
+    with transaccion(dictionary=True) as (cursor, _con):
+        cursor.execute(
+            "SELECT clave, valor FROM configuracion WHERE clave IN (%s, %s, %s)",
+            _CLAVES_SOPORTE,
+        )
+        filas = {fila["clave"]: fila["valor"] for fila in cursor.fetchall()}
     return {clave: (filas.get(clave) or "") for clave in _CLAVES_SOPORTE}
 
 
@@ -149,20 +139,16 @@ def guardar_contacto_soporte(telefono: str, coordinador: str, correo: str) -> No
     if correo and not correo_valido(correo):
         raise ValueError("El correo de soporte no tiene un formato válido.")
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.executemany(
-        "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
-        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
-        [
-            ("soporte_telefono", (telefono or "").strip()),
-            ("soporte_coordinador", (coordinador or "").strip()),
-            ("soporte_correo", correo),
-        ],
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.executemany(
+            "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+            [
+                ("soporte_telefono", (telefono or "").strip()),
+                ("soporte_coordinador", (coordinador or "").strip()),
+                ("soporte_correo", correo),
+            ],
+        )
 
 
 def enviar_correo_codigo_recuperacion(destino: str, codigo: str) -> None:
@@ -209,15 +195,13 @@ def reiniciar_base_datos() -> None:
     Irreversible. La pantalla que llama a esto es responsable de pedir
     la contraseña y una doble confirmación antes de invocarla.
     """
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
-    for tabla in _TABLAS_A_BORRAR:
-        cursor.execute(f"TRUNCATE TABLE {tabla}")
-    cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+        try:
+            for tabla in _TABLAS_A_BORRAR:
+                cursor.execute(f"TRUNCATE TABLE {tabla}")
+        finally:
+            cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
 
 
 def enviar_correo_prueba(destino: str | None = None) -> str:
@@ -307,23 +291,16 @@ def enviar_correo_atraso(prestamo: dict) -> None:
 
 def leer_ajuste(clave: str, default: str = None) -> str:
     """Valor suelto de la tabla configuracion (o `default` si no existe)."""
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute("SELECT valor FROM configuracion WHERE clave = %s", (clave,))
-    fila = cursor.fetchone()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.execute("SELECT valor FROM configuracion WHERE clave = %s", (clave,))
+        fila = cursor.fetchone()
     return fila[0] if fila and fila[0] is not None else default
 
 
 def guardar_ajuste(clave: str, valor: str) -> None:
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
-        "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
-        (clave, valor),
-    )
-    conexion.commit()
-    cursor.close()
-    conexion.close()
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+            (clave, valor),
+        )
