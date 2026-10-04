@@ -19,7 +19,8 @@ class Articulo:
     def __init__(self, id, codigo_inventario, nombre, categoria_id,
                 marca, modelo, serie, foto_path, estado_fisico,
                 estado_disponibilidad, fecha_adquisicion,
-                ubicacion_actual, uuid_local=None, fecha_creacion=None,
+                ubicacion_actual, cantidad_total=1, cantidad_disponible=1,
+                uuid_local=None, fecha_creacion=None,
                 **kwargs):
         self.id = id
         self.codigo_inventario = codigo_inventario
@@ -31,13 +32,15 @@ class Articulo:
         self.foto_path = foto_path
         self.estado_fisico = estado_fisico
         self.estado_disponibilidad = estado_disponibilidad
+        self.cantidad_total = cantidad_total
+        self.cantidad_disponible = cantidad_disponible
         self.fecha_adquisicion = fecha_adquisicion
         self.ubicacion_actual = ubicacion_actual
         self.uuid_local = uuid_local
         self.fecha_creacion = fecha_creacion
 
     def esta_disponible(self):
-        return self.estado_disponibilidad == "disponible"
+        return self.estado_disponibilidad == "disponible" and self.cantidad_disponible > 0
     
     def __repr__(self):
         return f"<Articulo {self.codigo_inventario} - {self.nombre}>"

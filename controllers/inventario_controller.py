@@ -16,9 +16,12 @@ de widgets de Tkinter (ej. Treeview iid) llegan como string — convertir
 siempre a int antes de usarlos en queries con FOREIGN KEY.
 """
 
-from db.conexion import transaccion
+from datetime import date, datetime
+
+from db.conexion import obtener_conexion, transaccion
 from models.articulo import Articulo
 from utils.auditoria import registrar_movimiento
+from utils.validaciones import variantes_codigo_escaneado
 
 
 def generar_codigo_inventario(prefijo):
@@ -44,6 +47,7 @@ def generar_codigo_inventario(prefijo):
     return f"{prefijo}-{siguiente:04d}"  # TEC-0001, TEC-0002, etc.
 
 
+
 # -----------------------------------------------------
 # Agregar articulo nuevo
 # -----------------------------------------------------
@@ -51,31 +55,52 @@ def agregar_articulo(datos):
     """
     datos: diccionario con las llaves:
     nombre, categoria_id, marca, modelo, serie, foto_path,
-    estado_fisico, fecha_adquisicion, ubicacion_actual, prefijo_codigo
+    estado_fisico, fecha_adquisicion, ubicacion_actual, prefijo_codigo,
+    cantidad_total (opcional, default 1: cuántas unidades hay en stock
+    de este artículo), codigo_manual (opcional: código de barras que el
+    artículo ya trae de fábrica; si no se da, se genera uno nuevo con
+    prefijo_codigo).
+
+    Cada fila de `articulos` es un TIPO de artículo (ej. "Calculadora
+    Casio"), no una unidad física: la cantidad se controla con
+    cantidad_total/cantidad_disponible en vez de dar de alta una fila
+    por cada unidad (eso era lento con cantidades grandes y obligaba a
+    inventar códigos de barras con sufijo -2/-3... para cada copia).
     """
-    codigo_inventario = generar_codigo_inventario(datos["prefijo_codigo"])
+    codigo_manual = (datos.get("codigo_manual") or "").strip()
+    cantidad_total = datos.get("cantidad_total") or 1
 
     with transaccion() as (cursor, _con):
+        if codigo_manual:
+            cursor.execute(
+                "SELECT id FROM articulos WHERE codigo_inventario = %s", (codigo_manual,)
+            )
+            if cursor.fetchone():
+                raise ValueError(f"Ya existe un artículo con el código '{codigo_manual}'.")
+            codigo_inventario = codigo_manual
+        else:
+            codigo_inventario = generar_codigo_inventario(datos["prefijo_codigo"])
+
         cursor.execute("""
             INSERT INTO articulos
             (codigo_inventario, nombre, categoria_id, marca, modelo, serie,
-            foto_path, estado_fisico, estado_disponibilidad, fecha_adquisicion,
-            ubicacion_actual)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'disponible', %s, %s)
+            foto_path, estado_fisico, estado_disponibilidad, cantidad_total,
+            cantidad_disponible, fecha_adquisicion, ubicacion_actual)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'disponible', %s, %s, %s, %s)
         """, (
             codigo_inventario, datos["nombre"], datos["categoria_id"],
             datos.get("marca"), datos.get("modelo"), datos.get("serie"),
             datos.get("foto_path"), datos.get("estado_fisico", "bueno"),
+            cantidad_total, cantidad_total,
             datos.get("fecha_adquisicion"), datos.get("ubicacion_actual")
         ))
         nuevo_id = cursor.lastrowid
 
-    # Auditoría: transacción aparte, a propósito (log desacoplado). Se
-    # hace fuera del `with` para no tener dos conexiones del pool a la vez.
+    # --- Registro de auditoría ---
     registrar_movimiento(
         articulo_id=nuevo_id,
         tipo_movimiento="alta",
-        detalle=f"Artículo agregado: {codigo_inventario} - {datos['nombre']}"
+        detalle=f"Artículo agregado: {codigo_inventario} - {datos['nombre']} (stock: {cantidad_total})"
     )
 
     return codigo_inventario, nuevo_id
@@ -85,31 +110,59 @@ def agregar_articulo(datos):
 # Editar artículo existente
 # ---------------------------------------------------------
 def editar_articulo(id_articulo, datos):
+    """
+    Si `datos` trae "cantidad_total", ajusta también cantidad_disponible
+    por la misma diferencia (ej. si el stock sube de 5 a 8, disponible
+    también sube en 3; si baja, no se permite dejar cantidad_disponible
+    en negativo -habría más unidades prestadas que stock nuevo-).
+    """
     with transaccion() as (cursor, _con):
-        cursor.execute("""
+        campos_extra = ""
+        valores_extra = []
+        if "cantidad_total" in datos and datos["cantidad_total"] is not None:
+            cursor.execute(
+                "SELECT cantidad_total, cantidad_disponible FROM articulos WHERE id = %s",
+                (id_articulo,)
+            )
+            fila = cursor.fetchone()
+            if fila:
+                total_anterior, disponible_anterior = fila
+                nuevo_total = datos["cantidad_total"]
+                nuevo_disponible = disponible_anterior + (nuevo_total - total_anterior)
+                if nuevo_disponible < 0:
+                    prestadas = total_anterior - disponible_anterior
+                    raise ValueError(
+                        f"No puedes bajar el stock a {nuevo_total}: hay {prestadas} "
+                        "unidad(es) prestada(s) en este momento."
+                    )
+                campos_extra = ", cantidad_total = %s, cantidad_disponible = %s"
+                valores_extra = [nuevo_total, nuevo_disponible]
+
+        cursor.execute(f"""
             UPDATE articulos SET
                 nombre = %s, categoria_id = %s, marca = %s, modelo = %s,
                 serie = %s, foto_path = %s, estado_fisico = %s,
-                fecha_adquisicion = %s, ubicacion_actual = %s
+                fecha_adquisicion = %s, ubicacion_actual = %s{campos_extra}
             WHERE id = %s
         """, (
             datos["nombre"], datos["categoria_id"], datos.get("marca"),
             datos.get("modelo"), datos.get("serie"), datos.get("foto_path"),
             datos.get("estado_fisico"), datos.get("fecha_adquisicion"),
-            datos.get("ubicacion_actual"), id_articulo
+            datos.get("ubicacion_actual"), *valores_extra, id_articulo
         ))
 
-
 # ---------------------------------------------------------
-# Dar de baja un artículo
+# Dar de baja un artículo (todo el stock deja de poder prestarse)
 # ---------------------------------------------------------
 def dar_de_baja(id_articulo):
     with transaccion() as (cursor, _con):
         cursor.execute(
-            "UPDATE articulos SET estado_disponibilidad = 'de_baja' WHERE id = %s",
+            "UPDATE articulos SET estado_disponibilidad = 'de_baja', cantidad_disponible = 0 "
+            "WHERE id = %s",
             (id_articulo,)
         )
 
+    # --- Registro de auditoría ---
     registrar_movimiento(
         articulo_id=id_articulo,
         tipo_movimiento="baja",
@@ -118,26 +171,85 @@ def dar_de_baja(id_articulo):
 
 
 # ---------------------------------------------------------
-# Actualizar estado de disponibilidad
-# Usado por asignacion_controller.py al prestar/devolver un artículo.
+# Revertir una baja (por si se apretó "Baja" sin querer, en vez de
+# otro botón) — reactiva el artículo y recalcula cuánto stock queda
+# realmente disponible (cantidad_total menos lo que sigue prestado).
 # ---------------------------------------------------------
-def actualizar_estado_articulo(id_articulo, nuevo_estado):
+def revertir_baja(id_articulo):
     with transaccion() as (cursor, _con):
         cursor.execute(
-            "UPDATE articulos SET estado_disponibilidad = %s WHERE id = %s",
-            (nuevo_estado, id_articulo)
+            "SELECT COALESCE(SUM(cantidad), 0) FROM asignaciones "
+            "WHERE articulo_id = %s AND hora_entrada_real IS NULL",
+            (id_articulo,)
+        )
+        prestado = cursor.fetchone()[0]
+
+        cursor.execute(
+            "UPDATE articulos SET estado_disponibilidad = 'disponible', "
+            "cantidad_disponible = GREATEST(cantidad_total - %s, 0) WHERE id = %s",
+            (prestado, id_articulo)
         )
 
+    registrar_movimiento(
+        articulo_id=id_articulo,
+        tipo_movimiento="alta",
+        detalle=f"Artículo id={id_articulo} reactivado (se revirtió la baja)"
+    )
+
+# ---------------------------------------------------------
+# Eliminar un artículo por completo (distinto de dar_de_baja)
+# ---------------------------------------------------------
+def eliminar_articulo(id_articulo):
+    """
+    Borra el artículo y su historial asociado (historial_movimientos,
+    mantenimientos, asignaciones ya devueltas). A diferencia de
+    dar_de_baja (que solo lo desactiva y conserva el historial), esto
+    es irreversible y quita el registro por completo de la base de
+    datos.
+
+    No se permite si el artículo tiene préstamos activos (en_uso o
+    atrasado): esas filas de `asignaciones` referencian articulo_id con
+    FOREIGN KEY, así que primero hay que esperar la devolución o usar
+    dar_de_baja en su lugar.
+    """
+    with transaccion() as (cursor, _con):
+        cursor.execute(
+            "SELECT COUNT(*) FROM asignaciones WHERE articulo_id = %s AND estado IN ('en_uso', 'atrasado')",
+            (id_articulo,)
+        )
+        prestamos_activos = cursor.fetchone()[0]
+        if prestamos_activos > 0:
+            raise ValueError(
+                "No se puede eliminar: el artículo tiene préstamo(s) activo(s). "
+                "Espera a que se devuelvan, o dalo de baja en su lugar."
+            )
+
+        cursor.execute("SELECT id FROM articulos WHERE id = %s", (id_articulo,))
+        if not cursor.fetchone():
+            raise ValueError("El artículo ya no existe.")
+
+        # Limpieza en orden por las FOREIGN KEY antes de borrar el artículo.
+        cursor.execute("DELETE FROM historial_movimientos WHERE articulo_id = %s", (id_articulo,))
+        cursor.execute("DELETE FROM mantenimientos WHERE articulo_id = %s", (id_articulo,))
+        cursor.execute("DELETE FROM asignaciones WHERE articulo_id = %s", (id_articulo,))
+        cursor.execute("DELETE FROM articulos WHERE id = %s", (id_articulo,))
 
 # ---------------------------------------------------------
 # Buscar artículo por código (usado por el escáner)
 # ---------------------------------------------------------
 def buscar_articulo_por_codigo(codigo):
+    """Busca por código exacto; si no existe, prueba las variantes que
+    produce un lector de barras con otra distribución de teclado (ver
+    utils.validaciones.variantes_codigo_escaneado)."""
     with transaccion(dictionary=True) as (cursor, _con):
-        cursor.execute(
-            "SELECT * FROM articulos WHERE codigo_inventario = %s", (codigo,)
-        )
-        fila = cursor.fetchone()
+        fila = None
+        for variante in variantes_codigo_escaneado(codigo):
+            cursor.execute(
+                "SELECT * FROM articulos WHERE codigo_inventario = %s", (variante,)
+            )
+            fila = cursor.fetchone()
+            if fila:
+                break
 
     return Articulo(**fila) if fila else None
 
@@ -162,6 +274,157 @@ def listar_articulos(categoria_id=None, estado_disponibilidad=None):
         filas = cursor.fetchall()
 
     return [Articulo(**fila) for fila in filas]
+
+
+# ---------------------------------------------------------
+# Importar artículos desde un archivo (CSV/Excel exportado por
+# "Descargar inventario" en Configuración, u otro con las mismas
+# columnas). Sirve para cargar de un jalón el inventario completo en
+# otra instalación de SIGITO (ej. la versión empaquetada / SIGITO App).
+# ---------------------------------------------------------
+_ESTADOS_FISICOS_VALIDOS = {"bueno", "regular", "dañado"}
+_ESTADOS_DISPONIBILIDAD_VALIDOS = {"disponible", "de_baja"}
+
+
+def _texto_o_none(valor):
+    texto = str(valor).strip() if valor is not None else ""
+    return texto or None
+
+
+def _entero_o(valor, default):
+    try:
+        numero = int(str(valor).strip())
+        return numero if numero >= 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _fecha_o_none(valor):
+    if valor is None or str(valor).strip() == "":
+        return None
+    if isinstance(valor, datetime):  # así llega una celda de fecha desde Excel
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    texto = str(valor).strip()
+    for formato in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(texto, formato).date()
+        except ValueError:
+            continue
+    return None
+
+
+def importar_articulos(filas):
+    """
+    filas: lista de dicts con (al menos) codigo_inventario y nombre —
+    las mismas columnas que genera "Descargar inventario": categoria,
+    marca, modelo, serie, estado_fisico, estado_disponibilidad,
+    cantidad_total, cantidad_disponible, ubicacion_actual,
+    fecha_adquisicion.
+
+    Si el codigo_inventario ya existe, actualiza esa fila; si no,
+    la crea. Categorías que no existan se crean automáticamente. Cada
+    fila se confirma por separado: una fila con datos inválidos no
+    interrumpe la importación del resto.
+
+    Devuelve {"creados": int, "actualizados": int, "errores": [str, ...]}.
+    """
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+
+    cursor.execute("SELECT id, nombre FROM categorias")
+    categorias_por_nombre = {nombre.lower(): id_ for id_, nombre in cursor.fetchall()}
+
+    creados = 0
+    actualizados = 0
+    errores = []
+
+    for numero, fila in enumerate(filas, start=2):  # fila 1 = encabezado
+        codigo = _texto_o_none(fila.get("codigo_inventario"))
+        nombre = _texto_o_none(fila.get("nombre"))
+
+        if not codigo or not nombre:
+            errores.append(f"Fila {numero}: falta código o nombre, se omitió.")
+            continue
+
+        try:
+            nombre_categoria = _texto_o_none(fila.get("categoria"))
+            if nombre_categoria:
+                categoria_id = categorias_por_nombre.get(nombre_categoria.lower())
+                if categoria_id is None:
+                    cursor.execute(
+                        "INSERT INTO categorias (nombre) VALUES (%s)", (nombre_categoria,)
+                    )
+                    categoria_id = cursor.lastrowid
+                    categorias_por_nombre[nombre_categoria.lower()] = categoria_id
+            else:
+                categoria_id = None
+
+            estado_fisico = _texto_o_none(fila.get("estado_fisico")) or "bueno"
+            if estado_fisico not in _ESTADOS_FISICOS_VALIDOS:
+                estado_fisico = "bueno"
+
+            estado_disponibilidad = _texto_o_none(fila.get("estado_disponibilidad")) or "disponible"
+            if estado_disponibilidad not in _ESTADOS_DISPONIBILIDAD_VALIDOS:
+                estado_disponibilidad = "disponible"
+
+            cantidad_total = _entero_o(fila.get("cantidad_total"), 1) or 1
+            cantidad_disponible = _entero_o(fila.get("cantidad_disponible"), cantidad_total)
+            cantidad_disponible = min(cantidad_disponible, cantidad_total)
+
+            datos_comunes = (
+                nombre, categoria_id,
+                _texto_o_none(fila.get("marca")), _texto_o_none(fila.get("modelo")),
+                _texto_o_none(fila.get("serie")), estado_fisico, estado_disponibilidad,
+                cantidad_total, cantidad_disponible,
+                _fecha_o_none(fila.get("fecha_adquisicion")),
+                _texto_o_none(fila.get("ubicacion_actual")),
+            )
+
+            # "foto_path" solo viene en archivos exportados como .zip (con
+            # fotos incluidas); un CSV/Excel plano no trae esa columna, así
+            # que al actualizar un artículo existente no se debe borrar la
+            # foto que ya tenía solo porque el archivo no la menciona.
+            trae_foto = "foto_path" in fila
+            foto_path = _texto_o_none(fila.get("foto_path"))
+
+            cursor.execute(
+                "SELECT id FROM articulos WHERE codigo_inventario = %s", (codigo,)
+            )
+            existente = cursor.fetchone()
+
+            if existente:
+                campo_foto = ", foto_path = %s" if trae_foto else ""
+                valores_foto = (foto_path,) if trae_foto else ()
+                cursor.execute(f"""
+                    UPDATE articulos SET
+                        nombre = %s, categoria_id = %s, marca = %s, modelo = %s,
+                        serie = %s, estado_fisico = %s, estado_disponibilidad = %s,
+                        cantidad_total = %s, cantidad_disponible = %s,
+                        fecha_adquisicion = %s, ubicacion_actual = %s{campo_foto}
+                    WHERE codigo_inventario = %s
+                """, (*datos_comunes, *valores_foto, codigo))
+                actualizados += 1
+            else:
+                cursor.execute("""
+                    INSERT INTO articulos
+                    (codigo_inventario, nombre, categoria_id, marca, modelo, serie,
+                     estado_fisico, estado_disponibilidad, cantidad_total,
+                     cantidad_disponible, fecha_adquisicion, ubicacion_actual, foto_path)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (codigo, *datos_comunes, foto_path))
+                creados += 1
+
+            conexion.commit()
+        except Exception as error:  # noqa: BLE001 - una fila mala no debe tumbar el resto
+            conexion.rollback()
+            errores.append(f"Fila {numero} ({codigo}): {error}")
+
+    cursor.close()
+    conexion.close()
+
+    return {"creados": creados, "actualizados": actualizados, "errores": errores}
 
 
 def generar_etiqueta(codigo_inventario, nombre_articulo, carpeta_salida="assets/etiquetas"):
@@ -263,3 +526,43 @@ def listar_categorias():
     with transaccion(dictionary=True) as (cursor, _con):
         cursor.execute("SELECT * FROM categorias ORDER BY nombre")
         return cursor.fetchall()
+
+
+def datos_para_exportar(incluir_foto_path=False):
+    """
+    Todos los artículos como lista de dicts lista para
+    utils/exportador.py (CSV/Excel/ZIP) — usada por "Descargar
+    inventario" en Configuración y por el respaldo automático
+    (utils/respaldo.py).
+
+    Con incluir_foto_path=True agrega la ruta absoluta local de la foto
+    de cada artículo (solo tiene sentido para el export en .zip con
+    fotos; un CSV/Excel plano no la incluye para no dejar rutas locales
+    que no sirven en otra PC).
+    """
+    import os
+
+    articulos = listar_articulos()
+    nombre_categoria = {cat["id"]: cat["nombre"] for cat in listar_categorias()}
+
+    datos = []
+    for a in articulos:
+        fila = {
+            "codigo_inventario": a.codigo_inventario,
+            "nombre": a.nombre,
+            "categoria": nombre_categoria.get(a.categoria_id, ""),
+            "marca": a.marca or "",
+            "modelo": a.modelo or "",
+            "serie": a.serie or "",
+            "estado_fisico": a.estado_fisico,
+            "estado_disponibilidad": a.estado_disponibilidad,
+            "cantidad_total": a.cantidad_total,
+            "cantidad_disponible": a.cantidad_disponible,
+            "ubicacion_actual": a.ubicacion_actual or "",
+            "fecha_adquisicion": a.fecha_adquisicion,
+        }
+        if incluir_foto_path:
+            fila["foto_path"] = os.path.abspath(a.foto_path) if a.foto_path else ""
+        datos.append(fila)
+
+    return datos

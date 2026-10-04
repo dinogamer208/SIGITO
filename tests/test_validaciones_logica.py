@@ -50,3 +50,20 @@ def test_correo_sin_arroba_invalido():
 
 def test_correo_sin_dominio_invalido():
     assert config_controller.correo_valido("avisos@") is False
+
+
+# ----------------------- código escaneado -----------------------
+
+def test_variantes_codigo_quitan_apostrofo_inicial():
+    from utils.validaciones import variantes_codigo_escaneado
+    assert "009" in variantes_codigo_escaneado("'009")
+
+
+def test_variantes_codigo_cambian_apostrofo_por_guion():
+    from utils.validaciones import variantes_codigo_escaneado
+    assert "TEC-0007" in variantes_codigo_escaneado("TEC'0007")
+
+
+def test_variantes_codigo_prueban_primero_el_codigo_tal_cual():
+    from utils.validaciones import variantes_codigo_escaneado
+    assert variantes_codigo_escaneado(" TEC-0007 ") == ["TEC-0007"]

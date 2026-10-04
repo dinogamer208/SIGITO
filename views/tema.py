@@ -81,6 +81,8 @@ COLORES = {
     "danado_texto":         "#CA8A04",
     "de_baja_fondo":        "#F3F4F6",
     "de_baja_texto":        "#6B7280",
+    "tardista_fondo":       "#FFEDD5",
+    "tardista_texto":       "#EA580C",
 
     # Alertas y notificaciones
     "error":                "#DC2626",
@@ -196,6 +198,7 @@ def color_badge(estado):
     """
     mapa = {
         "disponible":   (COLORES["disponible_fondo"],   COLORES["disponible_texto"]),
+        "agotado":      (COLORES["atrasado_fondo"],      COLORES["atrasado_texto"]),
         "prestado":     (COLORES["en_uso_fondo"],        COLORES["en_uso_texto"]),
         "en_uso":       (COLORES["en_uso_fondo"],        COLORES["en_uso_texto"]),
         "atrasado":     (COLORES["atrasado_fondo"],      COLORES["atrasado_texto"]),

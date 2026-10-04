@@ -9,6 +9,15 @@ CREATE DATABASE IF NOT EXISTS sigito_db
 USE sigito_db;
 
 -- ---------------------------------------------------------
+-- Tabla: control_versiones (ver db/migraciones/000_control_versiones.sql)
+-- ---------------------------------------------------------
+CREATE TABLE control_versiones (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_migracion VARCHAR(150) NOT NULL UNIQUE,
+    aplicada_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ---------------------------------------------------------
 -- Tabla: categorias
 -- ---------------------------------------------------------
 CREATE TABLE categorias (
@@ -30,7 +39,9 @@ CREATE TABLE articulos (
     serie VARCHAR(100),
     foto_path VARCHAR(255),
     estado_fisico ENUM('bueno', 'regular', 'dañado') DEFAULT 'bueno',
-    estado_disponibilidad ENUM('disponible', 'prestado', 'de_baja') DEFAULT 'disponible',
+    estado_disponibilidad ENUM('disponible', 'de_baja') DEFAULT 'disponible',
+    cantidad_total INT NOT NULL DEFAULT 1,
+    cantidad_disponible INT NOT NULL DEFAULT 1,
     fecha_adquisicion DATE,
     ubicacion_actual VARCHAR(150),
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -44,10 +55,16 @@ CREATE TABLE usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
     usuario VARCHAR(50) NOT NULL UNIQUE,
+    correo VARCHAR(150) NULL,
     password_hash VARCHAR(255) NOT NULL,
-    rol ENUM('admin') DEFAULT 'admin',
+    rol ENUM('admin', 'limitado') DEFAULT 'admin',
     activo BOOLEAN DEFAULT TRUE,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    recovery_code_hash VARCHAR(255) NULL,
+    recovery_email_code_hash VARCHAR(255) NULL,
+    recovery_email_code_expira DATETIME NULL,
+    recovery_intentos_fallidos INT NOT NULL DEFAULT 0,
+    recovery_bloqueado_hasta DATETIME NULL
 );
 
 -- ---------------------------------------------------------
@@ -67,11 +84,13 @@ CREATE TABLE profesores_autorizados (
 CREATE TABLE asignaciones (
     id INT AUTO_INCREMENT PRIMARY KEY,
     articulo_id INT NOT NULL,
+    cantidad INT NOT NULL DEFAULT 1,
     nombre_completo VARCHAR(150) NOT NULL,
     seccion VARCHAR(20) NOT NULL,
     anio VARCHAR(20) NOT NULL,
     telefono VARCHAR(20) NOT NULL,
     correo VARCHAR(150) NOT NULL,
+    foto_alumno VARCHAR(255) NULL,
     profesor_autoriza_id INT NOT NULL,
     hora_salida DATETIME NOT NULL,
     hora_estimada_devolucion DATETIME NOT NULL,
@@ -80,6 +99,9 @@ CREATE TABLE asignaciones (
     correo_aviso_enviado BOOLEAN DEFAULT FALSE,
     usuario_registro_id INT NOT NULL,
     usuario_devolucion_id INT NULL,
+    devuelto_danado BOOLEAN NOT NULL DEFAULT FALSE,
+    observaciones_devolucion TEXT NULL,
+    foto_devolucion VARCHAR(255) NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (articulo_id) REFERENCES articulos(id),
     FOREIGN KEY (profesor_autoriza_id) REFERENCES profesores_autorizados(id),
@@ -111,6 +133,9 @@ CREATE TABLE mantenimientos (
     articulo_id INT NOT NULL,
     fecha DATE NOT NULL,
     descripcion TEXT,
+    destino VARCHAR(150),
+    fecha_retorno_estimada DATE,
+    estado ENUM('en_mantenimiento', 'regresado') DEFAULT 'en_mantenimiento',
     costo DECIMAL(10,2),
     tecnico VARCHAR(150),
     FOREIGN KEY (articulo_id) REFERENCES articulos(id)
@@ -132,6 +157,28 @@ INSERT INTO configuracion (clave, valor) VALUES
     ('correo_remitente',   ''),
     ('smtp_app_password',   ''),
     ('correo_copia_admin',  '');
+
+-- ---------------------------------------------------------
+-- Usuario admin por defecto: usuario "admin", contraseña "admin123"
+-- (hash bcrypt, costo 10 — ver utils/seguridad.py). Cámbiala desde
+-- Configuración > Contraseña de acceso en el primer inicio de sesión.
+-- ---------------------------------------------------------
+INSERT INTO usuarios (nombre, usuario, password_hash, rol, activo) VALUES
+    ('Administrador', 'admin', '$2b$10$ATNOGXNgpYKT602UVXacvO9R7RkboSoH5IaWaxVENvwgC2q1y0uVm', 'admin', TRUE);
+
+-- Registra las migraciones ya incorporadas a este schema, para que
+-- nadie las vuelva a aplicar por error.
+INSERT INTO control_versiones (nombre_migracion) VALUES
+    ('001_esquema_inicial.sql'),
+    ('002_configuracion.sql'),
+    ('003_foto_prestamo.sql'),
+    ('004_stock.sql'),
+    ('005_roles_y_mantenimiento.sql'),
+    ('006_recuperacion_cuenta.sql'),
+    ('007_limite_intentos_recuperacion.sql'),
+    ('008_devolucion_danada.sql'),
+    ('009_foto_devolucion.sql'),
+    ('010_corregir_enum_danado.sql');
 
 -- =========================================================
 -- NOTA: Ya no se crea un usuario de MySQL separado (sigito_app)

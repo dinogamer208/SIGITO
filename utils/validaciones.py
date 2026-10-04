@@ -32,3 +32,16 @@ def fecha_valida(fecha_str: str, formato: str = "%Y-%m-%d") -> bool:
         return True
     except ValueError:
         return False
+
+
+def variantes_codigo_escaneado(codigo: str) -> list[str]:
+    """
+    Formas posibles de un código leído con el lector de barras, en orden
+    de prioridad. Si el lector está configurado con teclado en inglés y
+    Windows en español, algunos caracteres llegan cambiados (ej. "'009"
+    en vez de "009", o "TEC'0007" en vez de "TEC-0007"), así que además
+    del código tal cual se prueba sin el ' y con - en su lugar.
+    """
+    codigo = (codigo or "").strip()
+    variantes = [codigo, codigo.replace("'", ""), codigo.replace("'", "-")]
+    return [v for i, v in enumerate(variantes) if v and v not in variantes[:i]]

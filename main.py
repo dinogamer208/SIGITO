@@ -51,8 +51,11 @@ def _mostrar_error_conexion():
     messagebox.showerror(
         "Error de conexión",
         "No se pudo conectar al servidor de MySQL.\n\n"
-        "Verifica que el servicio esté corriendo y que config.py "
-        "tenga los datos correctos (host, puerto, usuario, contraseña)."
+        "Si es la primera vez que abres SIGITO en esta PC, ejecuta "
+        "'instalar.bat' (en esta misma carpeta) para instalar la base "
+        "de datos local. Si ya lo instalaste, verifica que el servicio "
+        "esté corriendo y que el .env tenga los datos correctos "
+        "(host, puerto, usuario, contraseña)."
     )
     root.destroy()
 
@@ -64,6 +67,9 @@ def mostrar_login():
 
 def mostrar_dashboard(usuario):
     from dashboard_view import Dashboard
+    from utils import monitor, respaldo
+    monitor.iniciar()
+    respaldo.iniciar()
     Dashboard(_root, usuario=usuario, on_logout=mostrar_login)
 
 

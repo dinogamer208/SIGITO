@@ -17,11 +17,13 @@ from typing import Optional
 class Asignacion:
     id: int
     articulo_id: int
+    cantidad: int
     nombre_completo: str
     seccion: str
     anio: str
     telefono: str
     correo: str
+    foto_alumno: Optional[str]
     profesor_autoriza_id: int
     hora_salida: datetime
     hora_estimada_devolucion: datetime
@@ -31,17 +33,22 @@ class Asignacion:
     usuario_registro_id: int
     usuario_devolucion_id: Optional[int]
     fecha_creacion: Optional[datetime] = None
+    devuelto_danado: bool = False
+    observaciones_devolucion: Optional[str] = None
+    foto_devolucion: Optional[str] = None
 
     @staticmethod
     def desde_fila(fila: dict) -> "Asignacion":
         return Asignacion(
             id=fila["id"],
             articulo_id=fila["articulo_id"],
+            cantidad=fila.get("cantidad", 1),
             nombre_completo=fila["nombre_completo"],
             seccion=fila["seccion"],
             anio=fila["anio"],
             telefono=fila["telefono"],
             correo=fila["correo"],
+            foto_alumno=fila.get("foto_alumno"),
             profesor_autoriza_id=fila["profesor_autoriza_id"],
             hora_salida=fila["hora_salida"],
             hora_estimada_devolucion=fila["hora_estimada_devolucion"],
@@ -51,6 +58,9 @@ class Asignacion:
             usuario_registro_id=fila["usuario_registro_id"],
             usuario_devolucion_id=fila.get("usuario_devolucion_id"),
             fecha_creacion=fila.get("fecha_creacion"),
+            devuelto_danado=bool(fila.get("devuelto_danado", False)),
+            observaciones_devolucion=fila.get("observaciones_devolucion"),
+            foto_devolucion=fila.get("foto_devolucion"),
         )
 
     def esta_vencida(self) -> bool:

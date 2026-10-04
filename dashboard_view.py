@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import date
 
 from views.tema import COLORES, aplicar_tema, forzar_redibujo
+from views.componentes import imagen_avatar
 from controllers import inventario_controller, asignacion_controller, reportes_controller
 from controllers import auth_controller
 from utils import auditoria
@@ -32,10 +33,18 @@ class Dashboard(ctk.CTkToplevel):
         super().__init__(master)
 
         self.usuario = usuario
+        self.es_admin = usuario is None or usuario.rol == "admin"
         self.on_logout = on_logout
         self._vista_actual = "dashboard"
         self._after_paneles = None   # id del after() que arma el grid 2x2
+        self._vista_widget = None    # instancia de la vista mostrada (Inventario, Asignaciones...)
         self.protocol("WM_DELETE_WINDOW", self._cerrar_aplicacion)
+
+        # Atajos de teclado (solo en la ventana principal; las ventanas
+        # emergentes tienen los suyos: Esc para cerrar, Ctrl+Enter para guardar).
+        self.bind("<F5>", lambda _e: self._mostrar_vista(self._vista_actual))
+        self.bind("<Control-n>", self._atajo_nuevo_prestamo)
+        self.bind("<Control-N>", self._atajo_nuevo_prestamo)
 
         # --------------------------------------------------
         # Ajustar ventana al tamaño real de la pantalla
@@ -192,28 +201,35 @@ class Dashboard(ctk.CTkToplevel):
         ctk.CTkFrame(self.sidebar, height=1,
                      fg_color=self.COLOR_BORDER).pack(fill="x", padx=16, pady=(0, 16))
 
-        # 6 botones de navegación acordados con el equipo
+        # Un usuario con rol 'limitado' no ve Historial ni Usuarios en el
+        # sidebar (solo el admin administra profesores y audita el sistema).
         self.boton_dashboard    = self.crear_boton_sidebar("dashboard.png",    "Dashboard")
         self.boton_inventario   = self.crear_boton_sidebar("inventario.png",   "Inventario")
         self.boton_asignaciones = self.crear_boton_sidebar("asignaciones.png", "Asignaciones")
         self.boton_reportes     = self.crear_boton_sidebar("reportes.png",     "Reportes")
-        self.boton_usuarios     = self.crear_boton_sidebar("usuarios.png",     "Usuarios")
-        self.boton_config       = self.crear_boton_sidebar("configuracion.png","Configuración")
 
         self._botones_nav = {
             "dashboard":    self.boton_dashboard,
             "inventario":   self.boton_inventario,
             "asignaciones": self.boton_asignaciones,
             "reportes":     self.boton_reportes,
-            "usuarios":     self.boton_usuarios,
-            "config":       self.boton_config,
         }
 
         self.boton_dashboard.configure(command=lambda: self._mostrar_vista("dashboard"))
         self.boton_inventario.configure(command=lambda: self._mostrar_vista("inventario"))
         self.boton_asignaciones.configure(command=lambda: self._mostrar_vista("asignaciones"))
         self.boton_reportes.configure(command=lambda: self._mostrar_vista("reportes"))
-        self.boton_usuarios.configure(command=lambda: self._mostrar_vista("usuarios"))
+
+        if self.es_admin:
+            self.boton_historial = self.crear_boton_sidebar("historial.png", "Historial")
+            self.boton_usuarios  = self.crear_boton_sidebar("usuarios.png",  "Usuarios")
+            self.boton_historial.configure(command=lambda: self._mostrar_vista("historial"))
+            self.boton_usuarios.configure(command=lambda: self._mostrar_vista("usuarios"))
+            self._botones_nav["historial"] = self.boton_historial
+            self._botones_nav["usuarios"] = self.boton_usuarios
+
+        self.boton_config = self.crear_boton_sidebar("configuracion.png", "Configuración")
+        self._botones_nav["config"] = self.boton_config
         self.boton_config.configure(command=lambda: self._mostrar_vista("config"))
         self._resaltar_boton(self._vista_actual)
 
@@ -319,26 +335,47 @@ class Dashboard(ctk.CTkToplevel):
 
         for hijo in self.content.winfo_children():
             hijo.destroy()
+        self._vista_widget = None
 
         if nombre == "dashboard":
             self.crear_header(self.content)
         elif nombre == "inventario":
             from views.inventario_view import InventarioView
-            InventarioView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+            self._vista_widget = InventarioView(self.content, usuario=self.usuario)
+            self._vista_widget.pack(fill="both", expand=True, padx=24, pady=20)
         elif nombre == "asignaciones":
             from views.asignacion_view import AsignacionView
-            AsignacionView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
+            self._vista_widget = AsignacionView(self.content, usuario=self.usuario)
+            self._vista_widget.pack(fill="both", expand=True, padx=24, pady=20)
         elif nombre == "reportes":
             from views.reportes_view import ReportesView
-            ReportesView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
-        elif nombre == "usuarios":
+            self._vista_widget = ReportesView(self.content, usuario=self.usuario)
+            self._vista_widget.pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "historial" and self.es_admin:
+            from views.historial_view import HistorialView
+            self._vista_widget = HistorialView(self.content)
+            self._vista_widget.pack(fill="both", expand=True, padx=24, pady=20)
+        elif nombre == "usuarios" and self.es_admin:
             from views.usuarios_view import UsuariosView
-            UsuariosView(self.content).pack(fill="both", expand=True, padx=24, pady=20)
+            self._vista_widget = UsuariosView(self.content)
+            self._vista_widget.pack(fill="both", expand=True, padx=24, pady=20)
         elif nombre == "config":
             from views.config_view import ConfigView
-            ConfigView(self.content, usuario=self.usuario).pack(fill="both", expand=True, padx=24, pady=20)
+            self._vista_widget = ConfigView(self.content, usuario=self.usuario)
+            self._vista_widget.pack(fill="both", expand=True, padx=24, pady=20)
+
+    def _atajo_nuevo_prestamo(self, _event=None):
+        """Ctrl+N: ir a Asignaciones (si no está ahí) y abrir Nuevo préstamo."""
+        if self._vista_actual != "asignaciones":
+            self._mostrar_vista("asignaciones")
+        if self._vista_widget is not None and hasattr(self._vista_widget, "_on_nuevo_prestamo"):
+            self._vista_widget._on_nuevo_prestamo()
+        return "break"
 
     def _cerrar_sesion(self):
+        from utils import monitor, respaldo
+        monitor.detener()
+        respaldo.detener()
         auth_controller.cerrar_sesion()
         callback = self.on_logout
         self.destroy()
@@ -346,6 +383,9 @@ class Dashboard(ctk.CTkToplevel):
             callback()
 
     def _cerrar_aplicacion(self):
+        from utils import monitor, respaldo
+        monitor.detener()
+        respaldo.detener()
         self.master.destroy()
 
     # ==========================================================
@@ -689,12 +729,29 @@ class Dashboard(ctk.CTkToplevel):
         total  = sum(valores)
         angulo = -90.0
 
-        for val, color in zip(valores, colores_d):
-            grados = (val / total) * 360
+        # En Windows, un arco tan delgado que su inicio y su fin caen en el
+        # mismo píxel se dibuja como un círculo COMPLETO (así funciona Pie()
+        # de GDI): con 1 equipo de baja entre 1396, esa rebanada de 0.26°
+        # tapaba todo el anillo de gris. Por eso cada rebanada con datos se
+        # dibuja de al menos GRADOS_MINIMOS (quitándoselos a la más grande),
+        # y si solo hay una categoría se dibuja el anillo entero.
+        GRADOS_MINIMOS = 8.0  # ~10 px en el anillo: se alcanza a ver aunque sea 1 equipo
+        grados_por_valor = [(val / total) * 360 for val in valores]
+        if len(valores) > 1:
+            faltante = sum(max(0.0, GRADOS_MINIMOS - g) for g in grados_por_valor)
+            grados_por_valor = [max(g, GRADOS_MINIMOS) for g in grados_por_valor]
+            mayor = grados_por_valor.index(max(grados_por_valor))
+            grados_por_valor[mayor] -= faltante
+
+        if len(valores) == 1:
+            canvas.create_oval(cx - r_ext, cy - r_ext, cx + r_ext, cy + r_ext,
+                               fill=colores_d[0], outline=self.COLOR_CARD_INNER, width=3)
+
+        for grados, color in zip(grados_por_valor if len(valores) > 1 else [], colores_d):
             canvas.create_arc(
                 cx - r_ext, cy - r_ext, cx + r_ext, cy + r_ext,
                 start=angulo, extent=grados,
-                fill=color, outline=self.COLOR_CARD_INNER, width=3
+                fill=color, outline=self.COLOR_CARD_INNER, width=2
             )
             angulo += grados
 
@@ -784,21 +841,11 @@ class Dashboard(ctk.CTkToplevel):
             color_av = self._color_avatar(nombre)
             iniciales = self._iniciales(nombre)
 
-            avatar_frame = ctk.CTkFrame(
-                fila,
-                width=36, height=36,
-                fg_color=color_av,
-                corner_radius=18   # círculo perfecto
-            )
-            avatar_frame.pack(side="left", padx=(12, 10), pady=11)
-            avatar_frame.pack_propagate(False)
-
             ctk.CTkLabel(
-                avatar_frame,
-                text=iniciales,
-                font=("Segoe UI", 12, "bold"),
-                text_color="#FFFFFF"
-            ).place(relx=0.5, rely=0.5, anchor="center")
+                fila,
+                image=imagen_avatar(color_av, iniciales, tamano=36),
+                text="", width=36, height=36, fg_color="transparent",
+            ).pack(side="left", padx=(12, 10), pady=11)
 
             # --- Texto: nombre + acción en dos líneas ---
             texto_frame = ctk.CTkFrame(fila, fg_color="transparent")
